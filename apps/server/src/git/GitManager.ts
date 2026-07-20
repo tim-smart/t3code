@@ -1440,6 +1440,7 @@ export const make = Effect.gen(function* () {
     commitMessage?: string,
     preResolvedSuggestion?: CommitAndBranchSuggestion,
     filePaths?: readonly string[],
+    disableSigning?: boolean,
     progressReporter?: GitActionProgressReporter,
     actionId?: string,
   ) {
@@ -1486,6 +1487,9 @@ export const make = Effect.gen(function* () {
       progressReporter && actionId
         ? {
             onOutputLine: ({ stream, text }: { stream: "stdout" | "stderr"; text: string }) => {
+              if (currentHookName === null) {
+                return Effect.void;
+              }
               const sanitized = sanitizeProgressText(text);
               if (!sanitized) {
                 return Effect.void;
@@ -1527,6 +1531,7 @@ export const make = Effect.gen(function* () {
         : null;
     const { commitSha } = yield* gitCore.commit(cwd, suggestion.subject, suggestion.body, {
       timeoutMs: COMMIT_TIMEOUT_MS,
+      ...(disableSigning ? { disableSigning: true } : {}),
       ...(commitProgress ? { progress: commitProgress } : {}),
     });
     if (currentHookName !== null) {
@@ -2060,6 +2065,7 @@ export const make = Effect.gen(function* () {
                   commitMessageForStep,
                   preResolvedCommitSuggestion,
                   input.filePaths,
+                  input.disableCommitSigning,
                   options?.progressReporter,
                   progress.actionId,
                 ),
@@ -2126,6 +2132,10 @@ export const make = Effect.gen(function* () {
               kind: "action_failed",
               phase: Option.getOrNull(phase),
               message: error.message,
+              failureKind:
+                !input.disableCommitSigning && error._tag === "GitCommandError"
+                  ? error.failureKind
+                  : "unknown",
             }),
           ),
         ),
