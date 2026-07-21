@@ -8,7 +8,7 @@ import * as NodePath from "node:path";
 import * as Electron from "electron";
 import type { DesktopApplicationSelection } from "@t3tools/contracts";
 
-import { resolveMacApplicationIconDataUrl } from "./MacApplicationIcon.ts";
+import * as MacApplicationIcon from "./MacApplicationIcon.ts";
 
 export class ElectronDialogPickFolderError extends Schema.TaggedErrorClass<ElectronDialogPickFolderError>()(
   "ElectronDialogPickFolderError",
@@ -130,7 +130,10 @@ export class ElectronDialog extends Context.Service<
   }
 >()("@t3tools/desktop/electron/ElectronDialog") {}
 
-export const make = ElectronDialog.of({
+export const make = Effect.gen(function* () {
+  const applicationIcon = yield* MacApplicationIcon.MacApplicationIcon;
+
+  return ElectronDialog.of({
   pickFolder: Effect.fn("desktop.electron.dialog.pickFolder")(function* (input) {
     const ownerWindowId = Option.match(input.owner, {
       onNone: () => null,
@@ -229,15 +232,9 @@ export const make = ElectronDialog.of({
       });
     }
 
-    const iconDataUrl = yield* Effect.tryPromise({
-      try: () => resolveMacApplicationIconDataUrl(applicationPath),
-      catch: (cause) =>
-        new ElectronDialogPickApplicationError({
-          ownerWindowId,
-          selectedPath: applicationPath,
-          cause,
-        }),
-    }).pipe(Effect.orElseSucceed(() => null));
+    const iconDataUrl = yield* applicationIcon
+      .resolveDataUrl(applicationPath)
+      .pipe(Effect.orElseSucceed(() => null));
     return Option.some({
       applicationPath,
       suggestedName: NodePath.basename(applicationPath, NodePath.extname(applicationPath)),
@@ -267,6 +264,7 @@ export const make = ElectronDialog.of({
           cause,
         }),
     }).pipe(Effect.orDie),
+  });
 });
 
-export const layer = Layer.succeed(ElectronDialog, make);
+export const layer = Layer.effect(ElectronDialog, make);

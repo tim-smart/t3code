@@ -1,23 +1,24 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import type { BrowserWindow } from "electron";
 import { beforeEach, vi } from "vite-plus/test";
 
 import * as ElectronDialog from "./ElectronDialog.ts";
+import * as MacApplicationIcon from "./MacApplicationIcon.ts";
 
-const { showMessageBoxMock, showOpenDialogMock, showErrorBoxMock, getFileIconMock } = vi.hoisted(
+const { showMessageBoxMock, showOpenDialogMock, showErrorBoxMock, resolveDataUrlMock } = vi.hoisted(
   () => ({
     showMessageBoxMock: vi.fn(),
     showOpenDialogMock: vi.fn(),
     showErrorBoxMock: vi.fn(),
-    getFileIconMock: vi.fn(),
+    resolveDataUrlMock: vi.fn(),
   }),
 );
 
 vi.mock("electron", () => ({
-  app: { getFileIcon: getFileIconMock },
   dialog: {
     showMessageBox: showMessageBoxMock,
     showOpenDialog: showOpenDialogMock,
@@ -25,12 +26,22 @@ vi.mock("electron", () => ({
   },
 }));
 
+const applicationIconLayer = Layer.succeed(MacApplicationIcon.MacApplicationIcon, {
+  resolveDataUrl: (applicationPath) =>
+    Effect.tryPromise({
+      try: () => resolveDataUrlMock(applicationPath),
+      catch: (cause) =>
+        new MacApplicationIcon.MacApplicationIconResolutionError({ applicationPath, cause }),
+    }),
+} satisfies MacApplicationIcon.MacApplicationIcon["Service"]);
+const dialogLayer = ElectronDialog.layer.pipe(Layer.provide(applicationIconLayer));
+
 describe("ElectronDialog", () => {
   beforeEach(() => {
     showMessageBoxMock.mockReset();
     showOpenDialogMock.mockReset();
     showErrorBoxMock.mockReset();
-    getFileIconMock.mockReset();
+    resolveDataUrlMock.mockReset();
   });
 
   it.effect("selects a macOS application and resolves its system icon", () =>
@@ -40,7 +51,7 @@ describe("ElectronDialog", () => {
         canceled: false,
         filePaths: ["/Applications/Terminal.app"],
       });
-      getFileIconMock.mockResolvedValue({ toDataURL: () => "data:image/png;base64,icon" });
+      resolveDataUrlMock.mockResolvedValue("data:image/png;base64,icon");
       const dialog = yield* ElectronDialog.ElectronDialog;
       const result = yield* dialog.pickApplication({ owner: Option.some(owner) });
 
@@ -57,7 +68,7 @@ describe("ElectronDialog", () => {
           filters: [{ name: "Applications", extensions: ["app"] }],
         },
       ]);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("returns none when application selection is cancelled", () =>
@@ -65,8 +76,8 @@ describe("ElectronDialog", () => {
       showOpenDialogMock.mockResolvedValue({ canceled: true, filePaths: [] });
       const dialog = yield* ElectronDialog.ElectronDialog;
       assert.isTrue(Option.isNone(yield* dialog.pickApplication({ owner: Option.none() })));
-      assert.equal(getFileIconMock.mock.calls.length, 0);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+      assert.equal(resolveDataUrlMock.mock.calls.length, 0);
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("keeps a valid selection when icon extraction fails", () =>
@@ -75,7 +86,7 @@ describe("ElectronDialog", () => {
         canceled: false,
         filePaths: ["/Users/test/Applications/My Tool.app"],
       });
-      getFileIconMock.mockRejectedValue(new Error("icon unavailable"));
+      resolveDataUrlMock.mockRejectedValue(new Error("icon unavailable"));
       const dialog = yield* ElectronDialog.ElectronDialog;
 
       assert.deepEqual(Option.getOrNull(yield* dialog.pickApplication({ owner: Option.none() })), {
@@ -83,7 +94,7 @@ describe("ElectronDialog", () => {
         suggestedName: "My Tool",
         iconDataUrl: null,
       });
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("preserves folder picker request context and cause", () =>
