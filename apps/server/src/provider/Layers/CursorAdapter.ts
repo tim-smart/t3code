@@ -75,10 +75,7 @@ import {
   extractTodosAsPlan,
 } from "../acp/CursorAcpExtension.ts";
 import { type CursorAdapterShape } from "../Services/CursorAdapter.ts";
-import {
-  identityDirenvEnvironmentResolver,
-  type DirenvEnvironmentResolver,
-} from "../DirenvEnvironment.ts";
+import { type DirenvEnvironment, identityDirenvEnvironmentResolver } from "../DirenvEnvironment.ts";
 import { resolveCursorAcpBaseModelId } from "./CursorProvider.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
@@ -96,7 +93,7 @@ function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
 
 export interface CursorAdapterLiveOptions {
   readonly environment?: NodeJS.ProcessEnv;
-  readonly resolveEnvironment?: DirenvEnvironmentResolver;
+  readonly resolveEnvironment?: DirenvEnvironment["Service"]["resolve"];
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
   /**

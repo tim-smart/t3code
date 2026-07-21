@@ -38,10 +38,7 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { type OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
-import {
-  identityDirenvEnvironmentResolver,
-  type DirenvEnvironmentResolver,
-} from "../DirenvEnvironment.ts";
+import { type DirenvEnvironment, identityDirenvEnvironmentResolver } from "../DirenvEnvironment.ts";
 import {
   buildOpenCodePermissionRules,
   OpenCodeRuntime,
@@ -244,7 +241,7 @@ interface OpenCodeSessionContext {
 export interface OpenCodeAdapterLiveOptions {
   readonly instanceId?: ProviderInstanceId;
   readonly environment?: NodeJS.ProcessEnv;
-  readonly resolveEnvironment?: DirenvEnvironmentResolver;
+  readonly resolveEnvironment?: DirenvEnvironment["Service"]["resolve"];
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
 }

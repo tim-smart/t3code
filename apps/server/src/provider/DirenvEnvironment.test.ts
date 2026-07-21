@@ -41,6 +41,74 @@ const makeDirenvExecutable = Effect.fn("makeDirenvExecutable")(function* (direct
 });
 
 describe("DirenvEnvironment", () => {
+  describe("new worktree approval", () => {
+    it.effect("approves the exact .envrc in a newly created worktree", () => {
+      const run = vi.fn<ProcessRunner.ProcessRunner["Service"]["run"]>(() =>
+        Effect.succeed(successfulOutput("")),
+      );
+      return Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-direnv-worktree-",
+        });
+        const envrcPath = path.join(cwd, ".envrc");
+        yield* fileSystem.writeFileString(envrcPath, "export VALUE=next\n");
+        const { binDirectory, executable } = yield* makeDirenvExecutable(cwd);
+        const environment = { PATH: binDirectory, KEEP: "value" };
+        const direnvEnvironment = yield* DirenvEnvironment;
+
+        yield* direnvEnvironment.allow({ cwd, environment });
+
+        expect(run).toHaveBeenCalledOnce();
+        expect(run.mock.calls[0]?.[0]).toMatchObject({
+          command: executable,
+          args: ["allow", envrcPath],
+          cwd,
+          env: environment,
+          extendEnv: false,
+          maxOutputBytes: 64 * 1024,
+        });
+      }).pipe(Effect.provide(testLayer(run)));
+    });
+
+    it.effect("does not approve an ancestor .envrc outside the new worktree", () => {
+      const run = vi.fn<ProcessRunner.ProcessRunner["Service"]["run"]>();
+      return Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const parent = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-direnv-worktree-parent-",
+        });
+        const cwd = path.join(parent, "worktree");
+        yield* fileSystem.makeDirectory(cwd);
+        yield* fileSystem.writeFileString(path.join(parent, ".envrc"), "export VALUE=parent\n");
+        const direnvEnvironment = yield* DirenvEnvironment;
+
+        yield* direnvEnvironment.allow({ cwd, environment: { PATH: "/not-used" } });
+
+        expect(run).not.toHaveBeenCalled();
+      }).pipe(Effect.provide(testLayer(run)));
+    });
+
+    it.effect("does nothing when direnv is unavailable", () => {
+      const run = vi.fn<ProcessRunner.ProcessRunner["Service"]["run"]>();
+      return Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-direnv-worktree-missing-",
+        });
+        yield* fileSystem.writeFileString(path.join(cwd, ".envrc"), "export VALUE=next\n");
+        const direnvEnvironment = yield* DirenvEnvironment;
+
+        yield* direnvEnvironment.allow({ cwd, environment: { PATH: "" } });
+
+        expect(run).not.toHaveBeenCalled();
+      }).pipe(Effect.provide(testLayer(run)));
+    });
+  });
+
   it.effect(
     "returns the environment unchanged without inspecting PATH when no .envrc exists",
     () => {

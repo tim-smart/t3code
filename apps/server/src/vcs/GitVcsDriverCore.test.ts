@@ -16,6 +16,10 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { GitCommandError } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
+import {
+  DirenvEnvironment,
+  identityDirenvEnvironmentResolver,
+} from "../provider/DirenvEnvironment.ts";
 import { makeGitVcsDriverCore, splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 
@@ -1231,8 +1235,19 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           "feature-worktree",
         );
         const driver = yield* GitVcsDriver.GitVcsDriver;
+        const approvedWorktrees: Array<string> = [];
+        const driverWithApprovalSpy = yield* makeGitVcsDriverCore().pipe(
+          Effect.provide(ServerConfigLayer),
+          Effect.provideService(DirenvEnvironment, {
+            allow: ({ cwd }) =>
+              Effect.sync(() => {
+                approvedWorktrees.push(cwd);
+              }),
+            resolve: identityDirenvEnvironmentResolver,
+          }),
+        );
 
-        const created = yield* driver.createWorktree({
+        const created = yield* driverWithApprovalSpy.createWorktree({
           cwd,
           path: worktreePath,
           refName: initialBranch,
@@ -1242,6 +1257,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.equal(created.worktree.path, worktreePath);
         assert.equal(created.worktree.refName, "feature/worktree");
         assert.equal(yield* git(worktreePath, ["branch", "--show-current"]), "feature/worktree");
+        assert.deepStrictEqual(approvedWorktrees, [worktreePath]);
 
         yield* driver.removeWorktree({ cwd, path: worktreePath });
         const fileSystem = yield* FileSystem.FileSystem;
