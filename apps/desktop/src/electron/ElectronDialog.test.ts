@@ -1,23 +1,24 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import type { BrowserWindow } from "electron";
 import { beforeEach, vi } from "vite-plus/test";
 
 import * as ElectronDialog from "./ElectronDialog.ts";
+import * as MacApplicationIcon from "./MacApplicationIcon.ts";
 
-const { showMessageBoxMock, showOpenDialogMock, showErrorBoxMock, getFileIconMock } = vi.hoisted(
+const { showMessageBoxMock, showOpenDialogMock, showErrorBoxMock, resolveDataUrlMock } = vi.hoisted(
   () => ({
     showMessageBoxMock: vi.fn(),
     showOpenDialogMock: vi.fn(),
     showErrorBoxMock: vi.fn(),
-    getFileIconMock: vi.fn(),
+    resolveDataUrlMock: vi.fn(),
   }),
 );
 
 vi.mock("electron", () => ({
-  app: { getFileIcon: getFileIconMock },
   dialog: {
     showMessageBox: showMessageBoxMock,
     showOpenDialog: showOpenDialogMock,
@@ -25,12 +26,22 @@ vi.mock("electron", () => ({
   },
 }));
 
+const applicationIconLayer = Layer.succeed(MacApplicationIcon.MacApplicationIcon, {
+  resolveDataUrl: (applicationPath) =>
+    Effect.tryPromise({
+      try: () => resolveDataUrlMock(applicationPath),
+      catch: (cause) =>
+        new MacApplicationIcon.MacApplicationIconResolutionError({ applicationPath, cause }),
+    }),
+} satisfies MacApplicationIcon.MacApplicationIcon["Service"]);
+const dialogLayer = ElectronDialog.layer.pipe(Layer.provide(applicationIconLayer));
+
 describe("ElectronDialog", () => {
   beforeEach(() => {
     showMessageBoxMock.mockReset();
     showOpenDialogMock.mockReset();
     showErrorBoxMock.mockReset();
-    getFileIconMock.mockReset();
+    resolveDataUrlMock.mockReset();
   });
 
   it.effect("selects a macOS application and resolves its system icon", () =>
@@ -40,7 +51,7 @@ describe("ElectronDialog", () => {
         canceled: false,
         filePaths: ["/Applications/Terminal.app"],
       });
-      getFileIconMock.mockResolvedValue({ toDataURL: () => "data:image/png;base64,icon" });
+      resolveDataUrlMock.mockResolvedValue("data:image/png;base64,icon");
       const dialog = yield* ElectronDialog.ElectronDialog;
 
       const result = yield* dialog.pickApplication({ owner: Option.some(owner) });
@@ -58,7 +69,8 @@ describe("ElectronDialog", () => {
           filters: [{ name: "Applications", extensions: ["app"] }],
         },
       ]);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+      assert.deepEqual(resolveDataUrlMock.mock.calls[0], ["/Applications/Terminal.app"]);
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("returns none when application selection is cancelled", () =>
@@ -66,8 +78,8 @@ describe("ElectronDialog", () => {
       showOpenDialogMock.mockResolvedValue({ canceled: true, filePaths: [] });
       const dialog = yield* ElectronDialog.ElectronDialog;
       assert.isTrue(Option.isNone(yield* dialog.pickApplication({ owner: Option.none() })));
-      assert.equal(getFileIconMock.mock.calls.length, 0);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+      assert.equal(resolveDataUrlMock.mock.calls.length, 0);
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("keeps a valid selection when icon extraction fails", () =>
@@ -76,7 +88,7 @@ describe("ElectronDialog", () => {
         canceled: false,
         filePaths: ["/Users/test/Applications/My Tool.app"],
       });
-      getFileIconMock.mockRejectedValue(new Error("icon unavailable"));
+      resolveDataUrlMock.mockRejectedValue(new Error("icon unavailable"));
       const dialog = yield* ElectronDialog.ElectronDialog;
 
       assert.deepEqual(Option.getOrNull(yield* dialog.pickApplication({ owner: Option.none() })), {
@@ -84,7 +96,7 @@ describe("ElectronDialog", () => {
         suggestedName: "My Tool",
         iconDataUrl: null,
       });
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("returns false without opening a confirm dialog for empty messages", () =>
@@ -98,7 +110,7 @@ describe("ElectronDialog", () => {
 
       assert.isFalse(result);
       assert.equal(showMessageBoxMock.mock.calls.length, 0);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("opens a confirm dialog for the owner window", () =>
@@ -124,7 +136,7 @@ describe("ElectronDialog", () => {
           message: "Delete worktree?",
         },
       ]);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("opens an app-level confirm dialog when there is no owner window", () =>
@@ -148,7 +160,7 @@ describe("ElectronDialog", () => {
           message: "Delete worktree?",
         },
       ]);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("preserves folder picker request context and cause", () =>
@@ -173,7 +185,7 @@ describe("ElectronDialog", () => {
       assert.include(error.message, "window 7");
       assert.include(error.message, "/workspace");
       assert.notInclude(error.message, cause.message);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("preserves confirmation request context and cause", () =>
@@ -198,7 +210,7 @@ describe("ElectronDialog", () => {
       assert.include(error.message, "window 9");
       assert.notInclude(error.message, "Confirm removal?");
       assert.notInclude(error.message, cause.message);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("preserves message box request context and cause", () =>
@@ -235,7 +247,7 @@ describe("ElectronDialog", () => {
       assert.notInclude(error.message, "Cancel");
       assert.notInclude(error.message, "Discard");
       assert.notInclude(error.message, cause.message);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("preserves error box request context and cause in the defect", () =>
@@ -260,6 +272,6 @@ describe("ElectronDialog", () => {
       assert.notInclude(error.message, "Startup failed");
       assert.notInclude(error.message, "Could not start.");
       assert.notInclude(error.message, cause.message);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 });

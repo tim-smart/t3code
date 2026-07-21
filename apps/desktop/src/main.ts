@@ -23,6 +23,7 @@ import serverPackageJson from "../../server/package.json" with { type: "json" };
 import * as DesktopIpc from "./ipc/DesktopIpc.ts";
 import * as ElectronApp from "./electron/ElectronApp.ts";
 import * as ElectronDialog from "./electron/ElectronDialog.ts";
+import * as MacApplicationIcon from "./electron/MacApplicationIcon.ts";
 import * as ElectronMenu from "./electron/ElectronMenu.ts";
 import * as ElectronPowerMonitor from "./electron/ElectronPowerMonitor.ts";
 import * as ElectronProtocol from "./electron/ElectronProtocol.ts";
@@ -124,7 +125,7 @@ const electronLayer = Layer.mergeAll(
   ElectronUpdater.layer,
   ElectronWindow.layer,
   DesktopIpc.layer(Electron.ipcMain),
-);
+).pipe(Layer.provideMerge(MacApplicationIcon.layer));
 
 const desktopFoundationLayer = Layer.mergeAll(
   DesktopState.layer,
@@ -201,10 +202,10 @@ const desktopRuntimeLayer = desktopClerkLayer.pipe(
   Layer.flatMap((clerkContext) =>
     desktopApplicationLayer.pipe(
       Layer.provideMerge(Layer.succeedContext(clerkContext)),
-      Layer.provideMerge(NodeServices.layer),
       Layer.provideMerge(NodeHttpClient.layerUndici),
       Layer.provideMerge(NetService.layer),
       Layer.provideMerge(electronLayer),
+      Layer.provideMerge(NodeServices.layer),
     ),
   ),
 );
