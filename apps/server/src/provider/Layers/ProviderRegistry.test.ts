@@ -35,6 +35,7 @@ import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from ".
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as OpenCodeRuntime from "../opencodeRuntime.ts";
+import { DirenvEnvironment, identityDirenvEnvironmentResolver } from "../DirenvEnvironment.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./ProviderInstanceRegistryHydration.ts";
 import {
@@ -338,7 +339,14 @@ function makeMutableServerSettingsService(
   });
 }
 
-it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), TestHttpClientLive))(
+it.layer(
+  Layer.mergeAll(
+    NodeServices.layer,
+    ServerSettingsModule.layerTest(),
+    TestHttpClientLive,
+    Layer.succeed(DirenvEnvironment, { resolve: identityDirenvEnvironmentResolver }),
+  ),
+)(
   "ProviderRegistry",
   (it) => {
     describe("checkCodexProviderStatus", () => {
