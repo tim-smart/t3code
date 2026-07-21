@@ -6,6 +6,10 @@ import { readBrowserClientSettings, writeBrowserClientSettings } from "./clientP
 
 let cachedApi: LocalApi | undefined;
 
+function unavailableDesktopOpenWithError(): Error {
+  return new Error("Desktop Open With is unavailable in this client.");
+}
+
 function createBrowserLocalApi(): LocalApi {
   return {
     dialogs: {
@@ -19,6 +23,10 @@ function createBrowserLocalApi(): LocalApi {
         }
         return window.confirm(message);
       },
+      pickOpenWithApplication: async () => {
+        if (!window.desktopBridge) return Promise.reject(unavailableDesktopOpenWithError());
+        return window.desktopBridge.pickOpenWithApplication();
+      },
     },
     shell: {
       openExternal: async (url) => {
@@ -31,6 +39,14 @@ function createBrowserLocalApi(): LocalApi {
         }
 
         window.open(url, "_blank", "noopener,noreferrer");
+      },
+      resolveOpenWithPresentations: async () => {
+        if (!window.desktopBridge) return Promise.reject(unavailableDesktopOpenWithError());
+        return window.desktopBridge.resolveOpenWithPresentations();
+      },
+      openWith: async (input) => {
+        if (!window.desktopBridge) return Promise.reject(unavailableDesktopOpenWithError());
+        return window.desktopBridge.openWith(input);
       },
     },
     contextMenu: {
