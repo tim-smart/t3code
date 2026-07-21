@@ -1026,6 +1026,7 @@ export default function GitActionsControl({
       title: progress.title,
       description: resolveProgressDescription(progress),
       timeout: 0,
+      actionProps: undefined,
       data: progress.toastData,
     });
   }, []);
@@ -1334,6 +1335,7 @@ export default function GitActionsControl({
           title: progressStages[0] ?? "Running git action...",
           description: "Waiting for Git...",
           timeout: 0,
+          actionProps: undefined,
           data: scopedToastData,
         });
       }
