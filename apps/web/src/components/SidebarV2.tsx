@@ -23,6 +23,7 @@ import {
   PlusIcon,
   SearchIcon,
   ServerIcon,
+  SquareKanbanIcon,
   SquarePenIcon,
   Trash2Icon,
   Undo2Icon,
@@ -37,7 +38,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { useParams, useRouter } from "@tanstack/react-router";
+import { useLocation, useParams, useRouter } from "@tanstack/react-router";
 
 import {
   isAtomCommandInterrupted,
@@ -106,7 +107,10 @@ import {
   sortThreadsForSidebarV2,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
-import { prStatusIndicator, resolveThreadPr } from "./ThreadStatusIndicators";
+import {
+  prStatusIndicator,
+  resolveThreadPr,
+} from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
@@ -717,7 +721,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               )}
               <span className="relative ml-auto flex h-5 min-w-8 shrink-0 items-center justify-end pl-1 text-xs">
                 <span className="tabular-nums text-muted-foreground/65 transition-opacity group-hover/v2-row:opacity-0">
-                  {topStatus ? (
+                  {props.jumpLabel ? (
+                    props.jumpLabel
+                  ) : topStatus ? (
                     <span
                       className={cn(
                         "inline-flex items-center gap-1 font-medium",
@@ -1704,6 +1710,13 @@ export default function SidebarV2() {
           modelPickerOpen: isModelPickerOpen(),
         },
       });
+      if (command === "board.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (isMobile) setOpenMobile(false);
+        void router.navigate({ to: "/board" });
+        return;
+      }
       const navigateToThreadKey = (targetThreadKey: string | null) => {
         if (!targetThreadKey) return false;
         const targetThread = threadByKey.get(targetThreadKey);
@@ -1731,11 +1744,14 @@ export default function SidebarV2() {
     window.addEventListener("keydown", onWindowKeyDown);
     return () => window.removeEventListener("keydown", onWindowKeyDown);
   }, [
+    isMobile,
     keybindings,
     navigateToThread,
     orderedThreadKeys,
     routeTerminalOpen,
     routeThreadKey,
+    router,
+    setOpenMobile,
     threadByKey,
   ]);
 
@@ -1777,12 +1793,20 @@ export default function SidebarV2() {
     openCommandPalette({ open: "new-thread-in" });
   }, [isMobile, newThreadContext, projectGroups.length, setOpenMobile]);
 
+  const pathname = useLocation({ select: (l) => l.pathname });
+  const isBoardActive = pathname === "/board";
+  const handleBoardClick = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void router.navigate({ to: "/board" });
+  }, [isMobile, router, setOpenMobile]);
+
   const commandPaletteShortcutLabel = shortcutLabelForCommand(keybindings, "commandPalette.toggle");
   // Same resolution as v1: prefer the local-thread binding, fall back to
   // chat.new, no platform gating — web users have working shortcuts too.
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.newLocal") ??
     shortcutLabelForCommand(keybindings, "chat.new");
+  const boardShortcutLabel = shortcutLabelForCommand(keybindings, "board.open");
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
@@ -1809,6 +1833,31 @@ export default function SidebarV2() {
                   </Kbd>
                 ) : null}
               </CommandDialogTrigger>
+            </div>
+            <div className="shrink-0">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <SidebarMenuButton
+                      size="sm"
+                      type="button"
+                      className={cn(
+                        "relative size-8 justify-center rounded-md border-0 bg-transparent p-0 text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
+                        isBoardActive && "bg-sidebar-row-hover text-sidebar-foreground",
+                      )}
+                      onClick={handleBoardClick}
+                      aria-label="Board"
+                      aria-current={isBoardActive ? "page" : undefined}
+                      data-testid="sidebar-board-link"
+                    />
+                  }
+                >
+                  <SquareKanbanIcon className="size-4 shrink-0 text-sidebar-muted-foreground/80" />
+                </TooltipTrigger>
+                <TooltipPopup side="right">
+                  {boardShortcutLabel ? `Board (${boardShortcutLabel})` : "Board"}
+                </TooltipPopup>
+              </Tooltip>
             </div>
             <div className="shrink-0">
               <Tooltip>

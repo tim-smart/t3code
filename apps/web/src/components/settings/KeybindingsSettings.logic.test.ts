@@ -122,6 +122,7 @@ describe("KeybindingsSettings.logic", () => {
 
   it("formats static and project script command labels", () => {
     expect(commandLabel("commandPalette.toggle")).toBe("Command Palette: Toggle");
+    expect(commandLabel("board.open")).toBe("Board: Open");
     expect(commandLabel("script.setup-db.run")).toBe("Run Script: Setup Db");
   });
 
