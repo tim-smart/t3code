@@ -30,6 +30,17 @@ const clientSettings: ClientSettings = {
   fontSmoothing: true,
   glassOpacity: 80,
   planModeEnabled: false,
+  openWithEntries: [
+    {
+      id: OpenWithEntryId.make("terminal"),
+      name: "Terminal",
+      kind: "terminal",
+      invocation: { type: "mac-application", applicationPath: "/Applications/Terminal.app" },
+      directoryMode: "open-target",
+      arguments: [],
+    },
+  ],
+  preferredOpenWith: { type: "custom", id: OpenWithEntryId.make("terminal") },
   providerModelPreferences: {},
   sidebarAutoSettleAfterDays: 3,
   sidebarProjectGroupingMode: "repository_path",

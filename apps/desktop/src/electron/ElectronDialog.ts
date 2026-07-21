@@ -3,8 +3,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as NodePath from "node:path";
 
 import * as Electron from "electron";
+import type { DesktopApplicationSelection } from "@t3tools/contracts";
+
+import { resolveMacApplicationIconDataUrl } from "./MacApplicationIcon.ts";
 
 export class ElectronDialogPickFolderError extends Schema.TaggedErrorClass<ElectronDialogPickFolderError>()(
   "ElectronDialogPickFolderError",
@@ -33,6 +37,19 @@ export class ElectronDialogPickFilesError extends Schema.TaggedErrorClass<Electr
     const owner = this.ownerWindowId === null ? "the application" : `window ${this.ownerWindowId}`;
     const defaultPath = this.defaultPath === null ? "no default path" : this.defaultPath;
     return `Failed to open the Electron file picker for ${owner} with ${defaultPath}.`;
+  }
+}
+
+export class ElectronDialogPickApplicationError extends Schema.TaggedErrorClass<ElectronDialogPickApplicationError>()(
+  "ElectronDialogPickApplicationError",
+  {
+    ownerWindowId: Schema.NullOr(Schema.Number),
+    selectedPath: Schema.NullOr(Schema.String),
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return "Failed to select a macOS application.";
   }
 }
 
@@ -69,6 +86,7 @@ export class ElectronDialogShowErrorBoxError extends Schema.TaggedErrorClass<Ele
 export const ElectronDialogError = Schema.Union([
   ElectronDialogPickFolderError,
   ElectronDialogPickFilesError,
+  ElectronDialogPickApplicationError,
   ElectronDialogShowMessageBoxError,
   ElectronDialogShowErrorBoxError,
 ]);
@@ -86,6 +104,10 @@ export interface ElectronDialogPickFilesInput {
   readonly filters: readonly Electron.FileFilter[];
 }
 
+export interface ElectronDialogPickApplicationInput {
+  readonly owner: Option.Option<Electron.BrowserWindow>;
+}
+
 export class ElectronDialog extends Context.Service<
   ElectronDialog,
   {
@@ -95,6 +117,12 @@ export class ElectronDialog extends Context.Service<
     readonly pickFiles: (
       input: ElectronDialogPickFilesInput,
     ) => Effect.Effect<readonly string[], ElectronDialogPickFilesError>;
+    readonly pickApplication: (
+      input: ElectronDialogPickApplicationInput,
+    ) => Effect.Effect<
+      Option.Option<DesktopApplicationSelection>,
+      ElectronDialogPickApplicationError
+    >;
     readonly showMessageBox: (
       options: Electron.MessageBoxOptions,
     ) => Effect.Effect<Electron.MessageBoxReturnValue, ElectronDialogShowMessageBoxError>;
@@ -162,6 +190,59 @@ export const make = ElectronDialog.of({
         }),
     });
     return result.canceled ? [] : result.filePaths;
+  }),
+  pickApplication: Effect.fn("desktop.electron.dialog.pickApplication")(function* (input) {
+    const ownerWindowId = Option.match(input.owner, {
+      onNone: () => null,
+      onSome: (owner) => owner.id,
+    });
+    const options: Electron.OpenDialogOptions = {
+      defaultPath: "/Applications",
+      properties: ["openFile"],
+      filters: [{ name: "Applications", extensions: ["app"] }],
+    };
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        Option.match(input.owner, {
+          onNone: () => Electron.dialog.showOpenDialog(options),
+          onSome: (owner) => Electron.dialog.showOpenDialog(owner, options),
+        }),
+      catch: (cause) =>
+        new ElectronDialogPickApplicationError({
+          ownerWindowId,
+          selectedPath: null,
+          cause,
+        }),
+    });
+    if (result.canceled) return Option.none();
+
+    const applicationPath = result.filePaths[0];
+    if (
+      applicationPath === undefined ||
+      !NodePath.isAbsolute(applicationPath) ||
+      !applicationPath.toLowerCase().endsWith(".app")
+    ) {
+      return yield* new ElectronDialogPickApplicationError({
+        ownerWindowId,
+        selectedPath: applicationPath ?? null,
+        cause: new Error("The selected path is not an absolute .app bundle."),
+      });
+    }
+
+    const iconDataUrl = yield* Effect.tryPromise({
+      try: () => resolveMacApplicationIconDataUrl(applicationPath),
+      catch: (cause) =>
+        new ElectronDialogPickApplicationError({
+          ownerWindowId,
+          selectedPath: applicationPath,
+          cause,
+        }),
+    }).pipe(Effect.orElseSucceed(() => null));
+    return Option.some({
+      applicationPath,
+      suggestedName: NodePath.basename(applicationPath, NodePath.extname(applicationPath)),
+      iconDataUrl,
+    });
   }),
   showMessageBox: (options) =>
     Effect.tryPromise({

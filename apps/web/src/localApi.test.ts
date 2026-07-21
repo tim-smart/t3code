@@ -74,6 +74,12 @@ describe("LocalApi", () => {
 
     expect(api).not.toHaveProperty("server");
     expect(api.shell).not.toHaveProperty("openInEditor");
+    await expect(api.dialogs.pickOpenWithApplication()).rejects.toThrow(
+      "Desktop Open With is unavailable in this client.",
+    );
+    await expect(api.shell.resolveOpenWithPresentations()).rejects.toThrow(
+      "Desktop Open With is unavailable in this client.",
+    );
   });
 
   it("uses the browser context-menu fallback without a desktop bridge", async () => {
@@ -108,11 +114,21 @@ describe("LocalApi", () => {
     const pickFolder = vi.fn().mockResolvedValue("/tmp/project");
     const getClientSettings = vi.fn().mockResolvedValue(DEFAULT_CLIENT_SETTINGS);
     const setClientSettings = vi.fn().mockResolvedValue(undefined);
+    const pickOpenWithApplication = vi.fn().mockResolvedValue({
+      applicationPath: "/Applications/Terminal.app",
+      suggestedName: "Terminal",
+      iconDataUrl: "data:image/png;base64,abc",
+    });
+    const resolveOpenWithPresentations = vi.fn().mockResolvedValue([]);
+    const openWith = vi.fn().mockResolvedValue(undefined);
     testWindow().desktopBridge = {
       showContextMenu,
       pickFolder,
       getClientSettings,
       setClientSettings,
+      pickOpenWithApplication,
+      resolveOpenWithPresentations,
+      openWith,
     } as unknown as DesktopBridge;
 
     const { createLocalApi } = await import("./localApi");
@@ -125,11 +141,25 @@ describe("LocalApi", () => {
     await expect(api.dialogs.pickFolder({ initialPath: "/tmp" })).resolves.toBe("/tmp/project");
     await expect(api.persistence.getClientSettings()).resolves.toEqual(DEFAULT_CLIENT_SETTINGS);
     await api.persistence.setClientSettings(DEFAULT_CLIENT_SETTINGS);
+    await expect(api.dialogs.pickOpenWithApplication()).resolves.toMatchObject({
+      suggestedName: "Terminal",
+    });
+    await expect(api.shell.resolveOpenWithPresentations()).resolves.toEqual([]);
+    await api.shell.openWith({
+      environmentId: "primary" as never,
+      entryId: "terminal" as never,
+      directory: "/tmp/project",
+    });
 
     expect(showContextMenu).toHaveBeenCalledWith(items, undefined);
     expect(pickFolder).toHaveBeenCalledWith({ initialPath: "/tmp" });
     expect(getClientSettings).toHaveBeenCalledTimes(1);
     expect(setClientSettings).toHaveBeenCalledWith(DEFAULT_CLIENT_SETTINGS);
+    expect(openWith).toHaveBeenCalledWith({
+      environmentId: "primary",
+      entryId: "terminal",
+      directory: "/tmp/project",
+    });
   });
 
   it("persists client settings in browser storage", async () => {

@@ -1153,9 +1153,10 @@ export interface ConfirmDialogOptions {
  * concepts.
  */
 export interface LocalApi {
-  dialogs: {
-    pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
-    confirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
+    dialogs: {
+      pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
+      confirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
+      pickOpenWithApplication: () => Promise<DesktopApplicationSelection | null>;
   };
   shell: {
     openExternal: (url: string) => Promise<void>;
