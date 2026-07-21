@@ -33,7 +33,11 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as OpenCodeRuntime from "../opencodeRuntime.ts";
-import { DirenvEnvironment, identityDirenvEnvironmentResolver } from "../DirenvEnvironment.ts";
+import {
+  DirenvEnvironment,
+  identityDirenvEnvironmentResolver,
+  noopDirenvEnvironmentAllow,
+} from "../DirenvEnvironment.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./ProviderInstanceRegistryHydration.ts";
 import {
@@ -307,7 +311,10 @@ it.layer(
     NodeServices.layer,
     ServerSettingsModule.layerTest(),
     TestHttpClientLive,
-    Layer.succeed(DirenvEnvironment, { resolve: identityDirenvEnvironmentResolver }),
+    Layer.succeed(DirenvEnvironment, {
+      allow: noopDirenvEnvironmentAllow,
+      resolve: identityDirenvEnvironmentResolver,
+    }),
   ),
 )(
   "ProviderRegistry",
