@@ -1234,31 +1234,49 @@ export const make = Effect.gen(function* () {
     });
 
     let currentHookName: string | null = null;
+    let pendingHookOutput: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
+    const emitHookOutput = (
+      hookName: string,
+      { stream, text }: { stream: "stdout" | "stderr"; text: string },
+    ) => {
+      const sanitized = sanitizeProgressText(text);
+      if (!sanitized) {
+        return Effect.void;
+      }
+      return emit({
+        kind: "hook_output",
+        hookName,
+        stream,
+        text: sanitized,
+      });
+    };
     const commitProgress =
       progressReporter && actionId
         ? {
-            onOutputLine: ({ stream, text }: { stream: "stdout" | "stderr"; text: string }) => {
-              if (currentHookName === null) {
-                return Effect.void;
-              }
-              const sanitized = sanitizeProgressText(text);
-              if (!sanitized) {
-                return Effect.void;
-              }
-              return emit({
-                kind: "hook_output",
-                hookName: currentHookName,
-                stream,
-                text: sanitized,
-              });
-            },
-            onHookStarted: (hookName: string) => {
-              currentHookName = hookName;
-              return emit({
-                kind: "hook_started",
-                hookName,
-              });
-            },
+            onOutputLine: (output: { stream: "stdout" | "stderr"; text: string }) =>
+              Effect.suspend(() => {
+                if (currentHookName === null) {
+                  pendingHookOutput.push(output);
+                  return Effect.void;
+                }
+                return emitHookOutput(currentHookName, output);
+              }),
+            onHookStarted: (hookName: string) =>
+              Effect.suspend(() => {
+                currentHookName = hookName;
+                const bufferedOutput = pendingHookOutput;
+                pendingHookOutput = [];
+                return emit({
+                  kind: "hook_started",
+                  hookName,
+                }).pipe(
+                  Effect.flatMap(() =>
+                    Effect.forEach(bufferedOutput, (output) => emitHookOutput(hookName, output), {
+                      discard: true,
+                    }),
+                  ),
+                );
+              }),
             onHookFinished: ({
               hookName,
               exitCode,
@@ -1294,6 +1312,7 @@ export const make = Effect.gen(function* () {
       });
       currentHookName = null;
     }
+    pendingHookOutput = [];
     return {
       status: "created" as const,
       commitSha,
