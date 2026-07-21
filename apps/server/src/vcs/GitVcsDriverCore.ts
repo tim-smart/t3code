@@ -348,6 +348,7 @@ function gitCommandContext(
     command: "git",
     cwd: input.cwd,
     argumentCount: input.args.length,
+    failureKind: "unknown" as const,
   } as const;
 }
 
@@ -1990,6 +1991,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               operation: "GitVcsDriver.getReviewDiffPreview.hash",
               command: "crypto.digest SHA-256",
               cwd: input.cwd,
+              failureKind: "unknown",
               detail: "Failed to hash review diff.",
               cause,
             }),
