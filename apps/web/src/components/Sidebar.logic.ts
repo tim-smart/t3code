@@ -94,6 +94,23 @@ export function buildMultiSelectThreadContextMenuItems(input: {
   ];
 }
 
+export type ThreadContextMenuAction =
+  | "rename"
+  | "mark-unread"
+  | "copy-path"
+  | "copy-thread-id"
+  | "delete";
+
+export function buildThreadContextMenuItems(): readonly ContextMenuItem<ThreadContextMenuAction>[] {
+  return [
+    { id: "rename", label: "Rename thread" },
+    { id: "mark-unread", label: "Mark unread" },
+    { id: "copy-path", label: "Copy Path" },
+    { id: "copy-thread-id", label: "Copy Thread ID" },
+    { id: "delete", label: "Delete", destructive: true, icon: "trash" },
+  ];
+}
+
 export interface ThreadStatusPill {
   label:
     | "Working"
@@ -422,6 +439,56 @@ export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2S
     return "failed";
   }
   return "ready";
+}
+
+export interface SidebarV2TopStatus {
+  label: "Working" | "Approval" | "Input" | "Failed" | "Done";
+  icon: "working" | "done" | null;
+  className: string;
+}
+
+// The v2 indicator presentation: colored label text (with an icon only for
+// "in motion" and "done") instead of the v1 dot pill. Ready threads stay
+// unlabeled unless they carry an unread completion, which surfaces as "Done".
+export function resolveSidebarV2TopStatus(input: {
+  status: SidebarV2Status;
+  isUnread: boolean;
+}): SidebarV2TopStatus | null {
+  switch (input.status) {
+    case "working":
+      return {
+        label: "Working",
+        icon: "working",
+        className:
+          "animate-sidebar-working-text text-sky-600 motion-reduce:animate-none dark:text-sky-400",
+      };
+    case "approval":
+      return {
+        label: "Approval",
+        icon: null,
+        className: "text-amber-700 dark:text-amber-300",
+      };
+    case "input":
+      return {
+        label: "Input",
+        icon: null,
+        className: "text-indigo-600 dark:text-indigo-300",
+      };
+    case "failed":
+      return {
+        label: "Failed",
+        icon: null,
+        className: "text-red-700 dark:text-red-300",
+      };
+    case "ready":
+      return input.isUnread
+        ? {
+            label: "Done",
+            icon: "done",
+            className: "text-emerald-700 dark:text-emerald-300",
+          }
+        : null;
+  }
 }
 
 /** NaN-safe Date.parse for sort comparators: a malformed timestamp must not

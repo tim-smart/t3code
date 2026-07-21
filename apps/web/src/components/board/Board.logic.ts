@@ -1,0 +1,368 @@
+import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
+import type {
+  EnvironmentId,
+  ProjectId,
+  ProviderInteractionMode,
+  ScopedProjectRef,
+  VcsStatusResult,
+} from "@t3tools/contracts";
+import { toSortableTimestamp } from "../../lib/threadSort";
+import type { ThreadStatusPill } from "../Sidebar.logic";
+import { resolveThreadPr, type ThreadPr } from "../ThreadStatusIndicators";
+
+export type BoardColumnId = "working" | "review" | "published" | "settled";
+
+export const BOARD_COLUMN_IDS: readonly BoardColumnId[] = [
+  "working",
+  "review",
+  "published",
+  "settled",
+];
+
+export const BOARD_COLUMN_LABELS: Record<BoardColumnId, string> = {
+  working: "Working",
+  review: "Review",
+  published: "Published",
+  settled: "Settled",
+};
+
+export const BOARD_TRASH_DROPPABLE_ID = "board-trash";
+export const BOARD_ARCHIVE_DROPPABLE_ID = "board-archive";
+export const BOARD_UNSETTLE_DROPPABLE_ID = "board-unsettle";
+export const BOARD_SETTLED_COLUMN_DROPPABLE_ID = "board-column-settled";
+
+export type BoardDropIntent = "archive" | "trash" | "settle" | "unsettle";
+
+/**
+ * Intent implied by the droppable currently under the pointer, or null when
+ * the drag is over neither zone. Drives feedback on the dragged card itself —
+ * the card usually covers the drop zone, hiding the zone's own highlight.
+ */
+export function resolveBoardDropIntent(
+  droppableId: string | number | null | undefined,
+): BoardDropIntent | null {
+  if (droppableId === BOARD_ARCHIVE_DROPPABLE_ID) return "archive";
+  if (droppableId === BOARD_TRASH_DROPPABLE_ID) return "trash";
+  if (droppableId === BOARD_UNSETTLE_DROPPABLE_ID) return "unsettle";
+  if (droppableId === BOARD_SETTLED_COLUMN_DROPPABLE_ID) return "settle";
+  return null;
+}
+
+const BOARD_WORKTREE_GROUP_DRAG_PREFIX = "board-worktree-group\u0000";
+
+/** Draggable id for a whole worktree group; drops act on every member thread. */
+export function boardWorktreeGroupDragId(worktreeKey: string): string {
+  return `${BOARD_WORKTREE_GROUP_DRAG_PREFIX}${worktreeKey}`;
+}
+
+/** Worktree key encoded in a group draggable id, or null for thread drags. */
+export function parseBoardWorktreeGroupDragId(
+  dragId: string | number | null | undefined,
+): string | null {
+  return typeof dragId === "string" && dragId.startsWith(BOARD_WORKTREE_GROUP_DRAG_PREFIX)
+    ? dragId.slice(BOARD_WORKTREE_GROUP_DRAG_PREFIX.length)
+    : null;
+}
+
+export interface BoardColumnInput {
+  threadStatusLabel: ThreadStatusPill["label"] | null;
+  interactionMode: ProviderInteractionMode;
+  isSettled: boolean;
+  latestTurnCompletedAt: string | null;
+  readySessionUpdatedAt: string | null;
+  lastVisitedAt: string | null;
+  threadBranch: string | null;
+  hasDedicatedWorktree: boolean;
+  hasWorkingThreadForWorktree: boolean;
+  gitStatus: VcsStatusResult | null;
+}
+
+/**
+ * Whether the thread's latest turn completed after the user's last visit.
+ * Explicit turn completions mirror `hasUnseenCompletion` in Sidebar.logic: a
+ * missing last-visited timestamp counts as seen, an unparsable one as unseen.
+ * A ready-session fallback requires a visit because it is only used when the
+ * provider did not retain a latest-turn summary.
+ */
+export function hasUnseenBoardCompletion(
+  input: Pick<
+    BoardColumnInput,
+    "latestTurnCompletedAt" | "readySessionUpdatedAt" | "lastVisitedAt"
+  >,
+): boolean {
+  const completionAt = input.latestTurnCompletedAt ?? input.readySessionUpdatedAt;
+  if (!completionAt) return false;
+  const completedAt = Date.parse(completionAt);
+  if (Number.isNaN(completedAt)) return false;
+  // A ready session is a fallback for providers whose shell cannot retain a
+  // latest-turn summary. Unlike an explicit completion, it only counts once
+  // the thread has actually been visited.
+  if (!input.lastVisitedAt) return false;
+  const lastVisitedAt = Date.parse(input.lastVisitedAt);
+  if (Number.isNaN(lastVisitedAt)) return true;
+  return completedAt > lastVisitedAt;
+}
+
+/**
+ * Cache key for the board's aggregated VCS status map. Matches the dedupe
+ * granularity of the underlying subscription family: one entry per unique
+ * (environmentId, cwd) pair.
+ */
+export function boardGitKey(environmentId: EnvironmentId, cwd: string): string {
+  return `${environmentId}\u0000${cwd}`;
+}
+
+/**
+ * Git status a thread may be attributed at all, or null. Threads sharing the
+ * project-root cwd must not inherit another branch's state, so without a
+ * dedicated worktree the checked-out ref has to match the thread's branch.
+ */
+export function resolveAppliedBoardGitStatus(
+  input: Pick<BoardColumnInput, "threadBranch" | "hasDedicatedWorktree" | "gitStatus">,
+): VcsStatusResult | null {
+  if (input.gitStatus === null || !input.gitStatus.isRepo) {
+    return null;
+  }
+  if (input.hasDedicatedWorktree) {
+    return input.gitStatus;
+  }
+  return input.threadBranch !== null && input.gitStatus.refName === input.threadBranch
+    ? input.gitStatus
+    : null;
+}
+
+/**
+ * PR attribution for board cards: branch-matched like the sidebar, but a
+ * dedicated worktree's status is always the thread's own, so its PR applies
+ * even when the worktree has switched to a different local ref name.
+ */
+export function resolveBoardThreadPr(
+  input: Pick<BoardColumnInput, "threadBranch" | "hasDedicatedWorktree" | "gitStatus">,
+): ThreadPr | null {
+  return resolveThreadPr({
+    threadBranch: input.threadBranch,
+    gitStatus: input.gitStatus,
+    hasDedicatedWorktree: input.hasDedicatedWorktree,
+  });
+}
+
+/**
+ * Lifecycle column for a thread. The server-backed settled flag is
+ * authoritative — safe to check first because `effectiveSettled` is never
+ * true for running or blocked threads, and it keeps a just-settled card from
+ * bouncing back to review on an unseen completion pill. Attention states win
+ * over the remaining lifecycle states: a thread blocked on the user
+ * (question/permission prompt) or holding an unseen completion sits in
+ * "review" regardless of git state. An actionable ready plan is also always
+ * reviewable. Git-driven columns still only move a card rightward as statuses
+ * stream in: unknown/unattributable git state falls through instead of
+ * guessing.
+ */
+export function deriveBoardColumn(input: BoardColumnInput): BoardColumnId {
+  if (input.isSettled) {
+    return "settled";
+  }
+
+  switch (input.threadStatusLabel) {
+    case "Pending Approval":
+    case "Awaiting Input":
+    case "Plan Ready":
+    case "Completed":
+      return "review";
+    case "Working":
+    case "Connecting":
+      return "working";
+    case null:
+      break;
+    default: {
+      const exhaustiveStatusLabel: never = input.threadStatusLabel;
+      return exhaustiveStatusLabel;
+    }
+  }
+
+  if (hasUnseenBoardCompletion(input)) {
+    return "review";
+  }
+
+  // A plan-mode thread does not own worktree changes made by the separate
+  // implementation thread that consumed its plan. Keep its column tied to
+  // its own attention/completion state instead of the shared worktree.
+  const gitStatus = input.interactionMode === "plan" ? null : resolveAppliedBoardGitStatus(input);
+  if (gitStatus !== null) {
+    const hasUnpublishedWork =
+      (gitStatus.hasWorkingTreeChanges && !input.hasWorkingThreadForWorktree) ||
+      gitStatus.aheadCount > 0 ||
+      (!gitStatus.hasUpstream && (gitStatus.aheadOfDefaultCount ?? 0) > 0);
+    if (hasUnpublishedWork) {
+      return "review";
+    }
+
+    // A merged PR is not special-cased here: it settles the thread through
+    // `effectiveSettled` upstream. When that is unavailable (pinned active,
+    // server without the settlement capability) the branch classifies by its
+    // git state alone, since it could not be moved out of Settled anyway.
+    const pr = resolveBoardThreadPr(input);
+    const isCleanPushedFeatureBranch =
+      gitStatus.aheadCount === 0 && gitStatus.hasUpstream && !gitStatus.isDefaultRef;
+    if (pr?.state === "open" || isCleanPushedFeatureBranch) {
+      return "published";
+    }
+  }
+
+  return "review";
+}
+
+export interface BoardSortableThread {
+  readonly id: string;
+  readonly updatedAt: string;
+}
+
+/** Sorts board threads newest-first by the timestamp selected for the column. */
+export function sortBoardThreads<T extends BoardSortableThread>(
+  threads: readonly T[],
+  getSortTimestamp: (thread: T) => string | null = (thread) => thread.updatedAt,
+): T[] {
+  return [...threads].sort((left, right) => {
+    const leftTimestamp =
+      toSortableTimestamp(getSortTimestamp(left) ?? undefined) ?? Number.NEGATIVE_INFINITY;
+    const rightTimestamp =
+      toSortableTimestamp(getSortTimestamp(right) ?? undefined) ?? Number.NEGATIVE_INFINITY;
+    if (leftTimestamp !== rightTimestamp) {
+      return rightTimestamp > leftTimestamp ? 1 : -1;
+    }
+    return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+  });
+}
+
+export type BoardColumnItem<T> =
+  | { readonly kind: "thread"; readonly thread: T }
+  | {
+      readonly kind: "worktreeGroup";
+      readonly worktreeKey: string;
+      readonly threads: readonly T[];
+    };
+
+/**
+ * Builds board items in lifecycle order. A shared group is emitted on its
+ * first encounter, which is its earliest column and most recent member there.
+ * Its members are already ordered by actual column, then that column's time.
+ */
+export function buildBoardColumns<T extends BoardSortableThread>(
+  threads: readonly T[],
+  getColumn: (thread: T) => BoardColumnId,
+  getWorkingStartedAt: (thread: T) => string | null,
+  getGroupKey: (thread: T) => string | null = () => null,
+): Record<BoardColumnId, readonly BoardColumnItem<T>[]> {
+  const threadsByColumn: Record<BoardColumnId, T[]> = {
+    working: [],
+    review: [],
+    published: [],
+    settled: [],
+  };
+  for (const thread of threads) {
+    threadsByColumn[getColumn(thread)].push(thread);
+  }
+  for (const columnId of BOARD_COLUMN_IDS) {
+    threadsByColumn[columnId] = sortBoardThreads(
+      threadsByColumn[columnId],
+      columnId === "working"
+        ? (thread) => getWorkingStartedAt(thread) ?? thread.updatedAt
+        : (thread) => thread.updatedAt,
+    );
+  }
+
+  const groupMembersByKey = new Map<string, T[]>();
+  for (const columnId of BOARD_COLUMN_IDS) {
+    for (const thread of threadsByColumn[columnId]) {
+      const groupKey = getGroupKey(thread);
+      if (groupKey === null) {
+        continue;
+      }
+      const members = groupMembersByKey.get(groupKey);
+      if (members) {
+        members.push(thread);
+      } else {
+        groupMembersByKey.set(groupKey, [thread]);
+      }
+    }
+  }
+
+  const columns: Record<BoardColumnId, BoardColumnItem<T>[]> = {
+    working: [],
+    review: [],
+    published: [],
+    settled: [],
+  };
+  const emittedGroupKeys = new Set<string>();
+  for (const columnId of BOARD_COLUMN_IDS) {
+    for (const thread of threadsByColumn[columnId]) {
+      const groupKey = getGroupKey(thread);
+      const groupMembers = groupKey === null ? undefined : groupMembersByKey.get(groupKey);
+      if (groupKey === null || groupMembers === undefined || groupMembers.length < 2) {
+        columns[columnId].push({ kind: "thread", thread });
+        continue;
+      }
+      if (emittedGroupKeys.has(groupKey)) {
+        continue;
+      }
+      emittedGroupKeys.add(groupKey);
+      columns[columnId].push({
+        kind: "worktreeGroup",
+        worktreeKey: groupKey,
+        threads: groupMembers,
+      });
+    }
+  }
+  return columns;
+}
+
+export interface BoardWorktreeThread {
+  readonly environmentId: EnvironmentId;
+  readonly worktreePath: string | null;
+}
+
+/**
+ * Identity of a thread's dedicated worktree for board grouping, or null when
+ * the thread runs in the shared project checkout. Only dedicated worktrees
+ * group: threads in the project root are unrelated lines of work even though
+ * they share a checkout.
+ */
+export function boardWorktreeKey(thread: BoardWorktreeThread): string | null {
+  const worktreePath = thread.worktreePath?.trim();
+  if (!worktreePath) {
+    return null;
+  }
+  return `${thread.environmentId}\u0000${worktreePath}`;
+}
+
+export interface BoardProjectFilterThread {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+}
+
+/**
+ * Predicate matching threads against a selected sidebar project group.
+ * Membership is by scoped project ref so locally+remotely-open copies of the
+ * same repository stay one entry, matching the sidebar's grouping. An
+ * unresolvable stored key (project removed, grouping changed) matches
+ * everything, i.e. falls back to "All projects".
+ */
+export function buildBoardProjectFilterPredicate(input: {
+  selectedProjectKey: string | null;
+  snapshots: ReadonlyArray<{
+    readonly projectKey: string;
+    readonly memberProjectRefs: readonly ScopedProjectRef[];
+  }>;
+}): (thread: BoardProjectFilterThread) => boolean {
+  const selectedSnapshot =
+    input.selectedProjectKey === null
+      ? null
+      : (input.snapshots.find((snapshot) => snapshot.projectKey === input.selectedProjectKey) ??
+        null);
+  if (selectedSnapshot === null) {
+    return () => true;
+  }
+  const memberKeys = new Set(selectedSnapshot.memberProjectRefs.map(scopedProjectKey));
+  return (thread) =>
+    memberKeys.has(scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)));
+}

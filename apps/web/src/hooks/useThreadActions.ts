@@ -1,5 +1,6 @@
 import {
   parseScopedThreadKey,
+  scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
@@ -67,6 +68,26 @@ export class ThreadSettleBlockedError extends Schema.TaggedErrorClass<ThreadSett
   override get message(): string {
     return "This thread still needs attention. Resolve or interrupt it first, then try again.";
   }
+}
+
+export async function deleteThreadTargetsSequentially<
+  TResult extends { readonly _tag: "Success" | "Failure" },
+>(
+  targets: readonly ScopedThreadRef[],
+  deleteTarget: (
+    target: ScopedThreadRef,
+    opts: { deletedThreadKeys: ReadonlySet<string> },
+  ) => Promise<TResult>,
+): Promise<TResult | null> {
+  const deletedThreadKeys = new Set<string>();
+  for (const target of targets) {
+    const result = await deleteTarget(target, { deletedThreadKeys });
+    if (result._tag === "Failure") {
+      return result;
+    }
+    deletedThreadKeys.add(scopedThreadKey(target));
+  }
+  return null;
 }
 
 export function useThreadActions() {
@@ -469,18 +490,57 @@ export function useThreadActions() {
     [confirmThreadDelete, deleteThread, resolveThreadTarget],
   );
 
+  const confirmAndDeleteThreads = useCallback(
+    async (targets: readonly ScopedThreadRef[]) => {
+      const [firstTarget] = targets;
+      if (firstTarget === undefined) {
+        return AsyncResult.success(undefined);
+      }
+      if (targets.length === 1) {
+        return confirmAndDeleteThread(firstTarget);
+      }
+
+      const localApi = readLocalApi();
+      if (confirmThreadDelete && localApi) {
+        const confirmationResult = await settlePromise(() =>
+          localApi.dialogs.confirm(
+            [
+              `Delete ${targets.length} threads?`,
+              "This permanently clears conversation history for these threads.",
+            ].join("\n"),
+          ),
+        );
+        if (confirmationResult._tag === "Failure") {
+          return confirmationResult;
+        }
+        if (!confirmationResult.value) {
+          return AsyncResult.success(undefined);
+        }
+      }
+
+      const failure = await deleteThreadTargetsSequentially(targets, deleteThread);
+      if (failure) {
+        return failure;
+      }
+      return AsyncResult.success(undefined);
+    },
+    [confirmAndDeleteThread, confirmThreadDelete, deleteThread],
+  );
+
   return useMemo(
     () => ({
       archiveThread,
       unarchiveThread,
       deleteThread,
       confirmAndDeleteThread,
+      confirmAndDeleteThreads,
       settleThread,
       unsettleThread,
     }),
     [
       archiveThread,
       confirmAndDeleteThread,
+      confirmAndDeleteThreads,
       deleteThread,
       settleThread,
       unarchiveThread,
