@@ -9,7 +9,7 @@ import * as NodePath from "node:path";
 import * as Electron from "electron";
 import type { DesktopApplicationSelection } from "@t3tools/contracts";
 
-import { resolveMacApplicationIconDataUrl } from "./MacApplicationIcon.ts";
+import * as MacApplicationIcon from "./MacApplicationIcon.ts";
 
 const CONFIRM_BUTTON_INDEX = 1;
 
@@ -131,150 +131,148 @@ export class ElectronDialog extends Context.Service<
   }
 >()("@t3tools/desktop/electron/ElectronDialog") {}
 
-export const make = ElectronDialog.of({
-  pickFolder: Effect.fn("desktop.electron.dialog.pickFolder")(function* (input) {
-    const ownerWindowId = Option.match(input.owner, {
-      onNone: () => null,
-      onSome: (owner) => owner.id,
-    });
-    const defaultPath = Option.getOrNull(input.defaultPath);
-    const openDialogOptions: Electron.OpenDialogOptions = Option.match(input.defaultPath, {
-      onNone: () => ({
-        properties: ["openDirectory", "createDirectory"],
-      }),
-      onSome: (defaultPath) => ({
-        properties: ["openDirectory", "createDirectory"],
-        defaultPath,
-      }),
-    });
-    const result = yield* Effect.tryPromise({
-      try: () =>
-        Option.match(input.owner, {
-          onNone: () => Electron.dialog.showOpenDialog(openDialogOptions),
-          onSome: (owner) => Electron.dialog.showOpenDialog(owner, openDialogOptions),
-        }),
-      catch: (cause) =>
-        new ElectronDialogPickFolderError({
-          ownerWindowId,
-          defaultPath,
-          cause,
-        }),
-    });
+export const make = Effect.gen(function* () {
+  const applicationIcon = yield* MacApplicationIcon.MacApplicationIcon;
 
-    if (result.canceled) {
-      return Option.none();
-    }
-    return Option.fromNullishOr(result.filePaths[0]);
-  }),
-  pickApplication: Effect.fn("desktop.electron.dialog.pickApplication")(function* (input) {
-    const ownerWindowId = Option.match(input.owner, {
-      onNone: () => null,
-      onSome: (owner) => owner.id,
-    });
-    const options: Electron.OpenDialogOptions = {
-      defaultPath: "/Applications",
-      properties: ["openFile"],
-      filters: [{ name: "Applications", extensions: ["app"] }],
-    };
-    const result = yield* Effect.tryPromise({
-      try: () =>
-        Option.match(input.owner, {
-          onNone: () => Electron.dialog.showOpenDialog(options),
-          onSome: (owner) => Electron.dialog.showOpenDialog(owner, options),
-        }),
-      catch: (cause) =>
-        new ElectronDialogPickApplicationError({
-          ownerWindowId,
-          selectedPath: null,
-          cause,
-        }),
-    });
-    if (result.canceled) return Option.none();
-
-    const applicationPath = result.filePaths[0];
-    if (
-      applicationPath === undefined ||
-      !NodePath.isAbsolute(applicationPath) ||
-      !applicationPath.toLowerCase().endsWith(".app")
-    ) {
-      return yield* new ElectronDialogPickApplicationError({
-        ownerWindowId,
-        selectedPath: applicationPath ?? null,
-        cause: new Error("The selected path is not an absolute .app bundle."),
+  return ElectronDialog.of({
+    pickFolder: Effect.fn("desktop.electron.dialog.pickFolder")(function* (input) {
+      const ownerWindowId = Option.match(input.owner, {
+        onNone: () => null,
+        onSome: (owner) => owner.id,
       });
-    }
+      const defaultPath = Option.getOrNull(input.defaultPath);
+      const openDialogOptions: Electron.OpenDialogOptions = Option.match(input.defaultPath, {
+        onNone: () => ({
+          properties: ["openDirectory", "createDirectory"],
+        }),
+        onSome: (defaultPath) => ({
+          properties: ["openDirectory", "createDirectory"],
+          defaultPath,
+        }),
+      });
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          Option.match(input.owner, {
+            onNone: () => Electron.dialog.showOpenDialog(openDialogOptions),
+            onSome: (owner) => Electron.dialog.showOpenDialog(owner, openDialogOptions),
+          }),
+        catch: (cause) =>
+          new ElectronDialogPickFolderError({
+            ownerWindowId,
+            defaultPath,
+            cause,
+          }),
+      });
 
-    const iconDataUrl = yield* Effect.tryPromise({
-      try: () => resolveMacApplicationIconDataUrl(applicationPath),
-      catch: (cause) =>
-        new ElectronDialogPickApplicationError({
-          ownerWindowId,
-          selectedPath: applicationPath,
-          cause,
-        }),
-    }).pipe(Effect.orElseSucceed(() => null));
-    return Option.some({
-      applicationPath,
-      suggestedName: NodePath.basename(applicationPath, NodePath.extname(applicationPath)),
-      iconDataUrl,
-    });
-  }),
-  confirm: Effect.fn("desktop.electron.dialog.confirm")(function* (input) {
-    const normalizedMessage = input.message.trim();
-    if (normalizedMessage.length === 0) {
-      return false;
-    }
-
-    const options = {
-      type: "question" as const,
-      buttons: ["No", "Yes"],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-      message: normalizedMessage,
-    };
-    const ownerWindowId = Option.match(input.owner, {
-      onNone: () => null,
-      onSome: (owner) => owner.id,
-    });
-    const result = yield* Effect.tryPromise({
-      try: () =>
-        Option.match(input.owner, {
-          onNone: () => Electron.dialog.showMessageBox(options),
-          onSome: (owner) => Electron.dialog.showMessageBox(owner, options),
-        }),
-      catch: (cause) =>
-        new ElectronDialogConfirmError({
-          ownerWindowId,
-          promptLength: normalizedMessage.length,
-          cause,
-        }),
-    });
-    return result.response === CONFIRM_BUTTON_INDEX;
-  }),
-  showMessageBox: (options) =>
-    Effect.tryPromise({
-      try: () => Electron.dialog.showMessageBox(options),
-      catch: (cause) =>
-        new ElectronDialogShowMessageBoxError({
-          type: options.type ?? null,
-          titleLength: options.title?.length ?? null,
-          messageLength: options.message.length,
-          detailLength: options.detail?.length ?? null,
-          buttonCount: options.buttons?.length ?? 0,
-          cause,
-        }),
+      if (result.canceled) {
+        return Option.none();
+      }
+      return Option.fromNullishOr(result.filePaths[0]);
     }),
-  showErrorBox: (title, content) =>
-    Effect.try({
-      try: () => Electron.dialog.showErrorBox(title, content),
-      catch: (cause) =>
-        new ElectronDialogShowErrorBoxError({
-          titleLength: title.length,
-          contentLength: content.length,
-          cause,
-        }),
-    }).pipe(Effect.orDie),
+    pickApplication: Effect.fn("desktop.electron.dialog.pickApplication")(function* (input) {
+      const ownerWindowId = Option.match(input.owner, {
+        onNone: () => null,
+        onSome: (owner) => owner.id,
+      });
+      const options: Electron.OpenDialogOptions = {
+        defaultPath: "/Applications",
+        properties: ["openFile"],
+        filters: [{ name: "Applications", extensions: ["app"] }],
+      };
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          Option.match(input.owner, {
+            onNone: () => Electron.dialog.showOpenDialog(options),
+            onSome: (owner) => Electron.dialog.showOpenDialog(owner, options),
+          }),
+        catch: (cause) =>
+          new ElectronDialogPickApplicationError({
+            ownerWindowId,
+            selectedPath: null,
+            cause,
+          }),
+      });
+      if (result.canceled) return Option.none();
+
+      const applicationPath = result.filePaths[0];
+      if (
+        applicationPath === undefined ||
+        !NodePath.isAbsolute(applicationPath) ||
+        !applicationPath.toLowerCase().endsWith(".app")
+      ) {
+        return yield* new ElectronDialogPickApplicationError({
+          ownerWindowId,
+          selectedPath: applicationPath ?? null,
+          cause: new Error("The selected path is not an absolute .app bundle."),
+        });
+      }
+
+      const iconDataUrl = yield* applicationIcon
+        .resolveDataUrl(applicationPath)
+        .pipe(Effect.orElseSucceed(() => null));
+      return Option.some({
+        applicationPath,
+        suggestedName: NodePath.basename(applicationPath, NodePath.extname(applicationPath)),
+        iconDataUrl,
+      });
+    }),
+    confirm: Effect.fn("desktop.electron.dialog.confirm")(function* (input) {
+      const normalizedMessage = input.message.trim();
+      if (normalizedMessage.length === 0) {
+        return false;
+      }
+
+      const options = {
+        type: "question" as const,
+        buttons: ["No", "Yes"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        message: normalizedMessage,
+      };
+      const ownerWindowId = Option.match(input.owner, {
+        onNone: () => null,
+        onSome: (owner) => owner.id,
+      });
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          Option.match(input.owner, {
+            onNone: () => Electron.dialog.showMessageBox(options),
+            onSome: (owner) => Electron.dialog.showMessageBox(owner, options),
+          }),
+        catch: (cause) =>
+          new ElectronDialogConfirmError({
+            ownerWindowId,
+            promptLength: normalizedMessage.length,
+            cause,
+          }),
+      });
+      return result.response === CONFIRM_BUTTON_INDEX;
+    }),
+    showMessageBox: (options) =>
+      Effect.tryPromise({
+        try: () => Electron.dialog.showMessageBox(options),
+        catch: (cause) =>
+          new ElectronDialogShowMessageBoxError({
+            type: options.type ?? null,
+            titleLength: options.title?.length ?? null,
+            messageLength: options.message.length,
+            detailLength: options.detail?.length ?? null,
+            buttonCount: options.buttons?.length ?? 0,
+            cause,
+          }),
+      }),
+    showErrorBox: (title, content) =>
+      Effect.try({
+        try: () => Electron.dialog.showErrorBox(title, content),
+        catch: (cause) =>
+          new ElectronDialogShowErrorBoxError({
+            titleLength: title.length,
+            contentLength: content.length,
+            cause,
+          }),
+      }).pipe(Effect.orDie),
+  });
 });
 
-export const layer = Layer.succeed(ElectronDialog, make);
+export const layer = Layer.effect(ElectronDialog, make);

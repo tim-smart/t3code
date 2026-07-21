@@ -16,6 +16,7 @@ import * as Option from "effect/Option";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as MacApplicationIcon from "../electron/MacApplicationIcon.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as DesktopOpenWith from "./DesktopOpenWith.ts";
 
@@ -60,6 +61,11 @@ const environmentLayer = DesktopEnvironment.layer({
 );
 
 const openWithLayer = DesktopOpenWith.layer.pipe(
+  Layer.provideMerge(
+    Layer.succeed(MacApplicationIcon.MacApplicationIcon, {
+      resolveDataUrl: () => Effect.die("unexpected application icon resolution"),
+    } satisfies MacApplicationIcon.MacApplicationIcon["Service"]),
+  ),
   Layer.provideMerge(
     DesktopClientSettings.layerTest(
       Option.some({

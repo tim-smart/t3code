@@ -19,13 +19,12 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Schema from "effect/Schema";
 import * as NodePath from "node:path";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
-import { resolveMacApplicationIconDataUrl } from "../electron/MacApplicationIcon.ts";
+import * as MacApplicationIcon from "../electron/MacApplicationIcon.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 
 interface ResolvedLaunch {
@@ -70,17 +69,6 @@ const entryIsAvailable = Effect.fn("desktop.openWith.entryIsAvailable")(function
   const stat = yield* statPath(entry.invocation.applicationPath);
   return Option.isSome(stat) && stat.value.type === "Directory";
 });
-
-const resolveIconDataUrl = (applicationPath: string) =>
-  Effect.tryPromise({
-    try: () => resolveMacApplicationIconDataUrl(applicationPath),
-    catch: (cause) => new OpenWithIconResolutionError({ applicationPath, cause }),
-  }).pipe(Effect.orElseSucceed(() => null));
-
-class OpenWithIconResolutionError extends Schema.TaggedErrorClass<OpenWithIconResolutionError>()(
-  "OpenWithIconResolutionError",
-  { applicationPath: Schema.String, cause: Schema.Defect() },
-) {}
 
 export const resolveMacBundleExecutable = Effect.fn("desktop.openWith.resolveMacBundleExecutable")(
   function* (applicationPath: string) {
@@ -254,6 +242,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const applicationIcon = yield* MacApplicationIcon.MacApplicationIcon;
 
   const providePlatformServices = <A, E>(
     effect: Effect.Effect<
@@ -278,7 +267,9 @@ export const make = Effect.gen(function* () {
         );
         const iconDataUrl =
           available && entry.invocation.type === "mac-application"
-            ? yield* resolveIconDataUrl(entry.invocation.applicationPath)
+            ? yield* applicationIcon
+                .resolveDataUrl(entry.invocation.applicationPath)
+                .pipe(Effect.orElseSucceed(() => null))
             : null;
         return {
           entryId: entry.id,
