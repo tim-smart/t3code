@@ -5,7 +5,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeURL from "node:url";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { assert, it } from "@effect/vitest";
+import { assert, it, vi } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -123,6 +123,40 @@ it("requires a settlement to match the live Grok turn", () => {
 });
 
 it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
+  it.effect("passes the resolved complete environment to the Grok ACP child", () =>
+    Effect.gen(function* () {
+      const tempDirectory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "grok-direnv-")),
+      );
+      const requestLogPath = NodePath.join(tempDirectory, "requests.jsonl");
+      const wrapperPath = yield* Effect.promise(() => makeMockGrokWrapper());
+      const resolveEnvironment = vi.fn((input) =>
+        Effect.succeed({
+          ...input.environment,
+          PROVIDER_VALUE: "from-direnv",
+          T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+        }),
+      );
+      const adapter = yield* makeTestAdapter(wrapperPath, {
+        environment: { ...process.env, PROVIDER_VALUE: "configured" },
+        resolveEnvironment,
+      });
+      const threadId = ThreadId.make("grok-direnv-thread");
+
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("grok"),
+        cwd: ".",
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(resolveEnvironment.mock.calls[0]?.[0].cwd, process.cwd());
+      const raw = yield* waitForFileContent(requestLogPath, 40, '"method":"initialize"');
+      assert.include(raw, '"method":"initialize"');
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("starts a session and maps mock ACP prompt flow to runtime events", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("grok-mock-thread");
