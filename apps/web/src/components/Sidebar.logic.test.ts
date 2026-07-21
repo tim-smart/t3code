@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
+  buildThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
@@ -17,6 +18,7 @@ import {
   resolveSidebarStageBadgeLabel,
   resolveThreadRowClassName,
   resolveSidebarV2Status,
+  resolveSidebarV2TopStatus,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
   formatWorkingDurationLabel,
@@ -160,6 +162,18 @@ describe("buildMultiSelectThreadContextMenuItems", () => {
     expect(
       buildMultiSelectThreadContextMenuItems({ count: 2, hasRunningThread: true }),
     ).toContainEqual({ id: "archive", label: "Archive (2)", disabled: true });
+  });
+});
+
+describe("buildThreadContextMenuItems", () => {
+  it("offers the thread actions shared by sidebar rows and board cards", () => {
+    expect(buildThreadContextMenuItems()).toEqual([
+      { id: "rename", label: "Rename thread" },
+      { id: "mark-unread", label: "Mark unread" },
+      { id: "copy-path", label: "Copy Path" },
+      { id: "copy-thread-id", label: "Copy Thread ID" },
+      { id: "delete", label: "Delete", destructive: true, icon: "trash" },
+    ]);
   });
 });
 
@@ -651,6 +665,41 @@ describe("resolveSidebarV2Status", () => {
 
   it("defaults to ready with no session", () => {
     expect(resolveSidebarV2Status({ ...idle, session: null })).toBe("ready");
+  });
+});
+
+describe("resolveSidebarV2TopStatus", () => {
+  it("maps each active status to its label and icon", () => {
+    expect(resolveSidebarV2TopStatus({ status: "working", isUnread: false })).toMatchObject({
+      label: "Working",
+      icon: "working",
+    });
+    expect(resolveSidebarV2TopStatus({ status: "approval", isUnread: false })).toMatchObject({
+      label: "Approval",
+      icon: null,
+    });
+    expect(resolveSidebarV2TopStatus({ status: "input", isUnread: false })).toMatchObject({
+      label: "Input",
+      icon: null,
+    });
+    expect(resolveSidebarV2TopStatus({ status: "failed", isUnread: false })).toMatchObject({
+      label: "Failed",
+      icon: null,
+    });
+  });
+
+  it("labels ready threads Done only when they carry an unread completion", () => {
+    expect(resolveSidebarV2TopStatus({ status: "ready", isUnread: true })).toMatchObject({
+      label: "Done",
+      icon: "done",
+    });
+    expect(resolveSidebarV2TopStatus({ status: "ready", isUnread: false })).toBeNull();
+  });
+
+  it("ignores unread for non-ready statuses", () => {
+    expect(resolveSidebarV2TopStatus({ status: "working", isUnread: true })).toMatchObject({
+      label: "Working",
+    });
   });
 });
 
