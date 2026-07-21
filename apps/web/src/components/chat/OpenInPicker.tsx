@@ -597,7 +597,7 @@ export const OpenInPicker = memo(function OpenInPicker({
             {canManageCustom && (
               <>
                 {options.length > 0 && <MenuSeparator />}
-                <MenuItem onClick={openAddDialog}>
+                <MenuItem className="hover:bg-accent" onClick={openAddDialog}>
                   <PlusIcon className="size-4" />
                   Add application
                 </MenuItem>
