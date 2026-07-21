@@ -51,10 +51,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type CodexAdapterShape } from "../Services/CodexAdapter.ts";
-import {
-  identityDirenvEnvironmentResolver,
-  type DirenvEnvironmentResolver,
-} from "../DirenvEnvironment.ts";
+import { type DirenvEnvironment, identityDirenvEnvironmentResolver } from "../DirenvEnvironment.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
@@ -79,7 +76,7 @@ const PROVIDER = ProviderDriverKind.make("codex");
 export interface CodexAdapterLiveOptions {
   readonly instanceId?: ProviderInstanceId;
   readonly environment?: NodeJS.ProcessEnv;
-  readonly resolveEnvironment?: DirenvEnvironmentResolver;
+  readonly resolveEnvironment?: DirenvEnvironment["Service"]["resolve"];
   readonly makeRuntime?: (
     options: CodexSessionRuntimeOptions,
   ) => Effect.Effect<
