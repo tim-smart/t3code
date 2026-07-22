@@ -232,6 +232,7 @@ const make = Effect.gen(function* () {
   });
   const startupReconciliationDone = yield* Deferred.make<void>();
   const recoveredThreadIds = new Set<ThreadId>();
+  const interruptedRecoveryThreadIds = new Set<ThreadId>();
 
   const hasHandledTurnStartRecently = (key: string) =>
     Cache.getOption(handledTurnStartKeys, key).pipe(
@@ -1111,6 +1112,56 @@ const make = Effect.gen(function* () {
     }
 
     const createdAt = DateTime.formatIso(yield* DateTime.now);
+    const projectedTurns = yield* projectionTurnRepository.listByThreadId({
+      threadId: binding.threadId,
+    });
+    const projectedCandidateTurn =
+      candidate.interruptedProviderTurnId === null
+        ? undefined
+        : projectedTurns.find((turn) => turn.turnId === candidate.interruptedProviderTurnId);
+    const latestProjectedTurn = projectedTurns.findLast((turn) => turn.turnId !== null);
+    const projectedRecoveryTurn = projectedCandidateTurn ?? latestProjectedTurn;
+    if (projectedRecoveryTurn?.state === "completed" || projectedRecoveryTurn?.state === "error") {
+      yield* providerSessionDirectory
+        .upsert({
+          threadId: binding.threadId,
+          provider: binding.provider,
+          ...(binding.providerInstanceId !== undefined
+            ? { providerInstanceId: binding.providerInstanceId }
+            : {}),
+          ...(binding.runtimeMode !== undefined ? { runtimeMode: binding.runtimeMode } : {}),
+          status: "stopped",
+          runtimePayload: {
+            activeTurnId: null,
+            restartRecovery: null,
+            lastRuntimeEvent: "provider.restartRecovery.skipped",
+            lastRuntimeEventAt: createdAt,
+          },
+        })
+        .pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("stale provider restart recovery intent was not cleared", {
+              threadId: binding.threadId,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
+      yield* Effect.logInfo("provider turn restart recovery skipped", {
+        threadId: binding.threadId,
+        provider: binding.provider,
+        reason: "projected-turn-settled",
+        projectedTurnId: projectedRecoveryTurn.turnId,
+        projectedTurnState: projectedRecoveryTurn.state,
+      });
+      yield* increment(providerTurnRecoveriesTotal, {
+        outcome: "skipped",
+        reason: "projected-turn-settled",
+        provider: binding.provider,
+      });
+      return;
+    }
+    interruptedRecoveryThreadIds.add(thread.id);
+
     const recover = Effect.gen(function* () {
       const runtimeMode = binding.runtimeMode ?? thread.runtimeMode;
       // This lifecycle transition settles the concrete old projection row as
@@ -1392,10 +1443,6 @@ const make = Effect.gen(function* () {
       });
       return candidate === undefined ? [] : [{ binding, candidate }];
     });
-    const recoveryCandidateThreadIds = new Set(
-      recoveryCandidates.map(({ binding }) => binding.threadId),
-    );
-
     const pendingTurnStarts = yield* projectionTurnRepository.listPendingTurnStarts().pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("provider restart recovery failed to list pending turn starts", {
@@ -1421,10 +1468,10 @@ const make = Effect.gen(function* () {
       discard: true,
     });
 
-    const pendingWithoutAcceptedProviderTurn = pendingTurnStarts.filter(
-      (pending) => !recoveryCandidateThreadIds.has(pending.threadId),
+    const pendingWithoutInterruptedRecovery = pendingTurnStarts.filter(
+      (pending) => !interruptedRecoveryThreadIds.has(pending.threadId),
     );
-    if (pendingWithoutAcceptedProviderTurn.length === 0) return;
+    if (pendingWithoutInterruptedRecovery.length === 0) return;
 
     const persistedEvents = yield* Stream.runCollect(
       orchestrationEngine.readEvents(0, Number.MAX_SAFE_INTEGER),
@@ -1449,7 +1496,7 @@ const make = Effect.gen(function* () {
     }
 
     yield* Effect.forEach(
-      pendingWithoutAcceptedProviderTurn,
+      pendingWithoutInterruptedRecovery,
       (pending) =>
         Effect.gen(function* () {
           const thread = yield* resolveThread(pending.threadId);

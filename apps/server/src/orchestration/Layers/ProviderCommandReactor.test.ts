@@ -800,6 +800,147 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("does not resume settled turns from stale recovery bindings", async () => {
+    const modelSelection: ModelSelection = {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5-codex",
+    };
+    const markerThreadId = ThreadId.make("thread-1");
+    const legacyThreadId = ThreadId.make("thread-settled-legacy");
+    const markerTurnId = asTurnId("turn-settled-marker");
+    const legacyTurnId = asTurnId("turn-settled-legacy");
+    const harness = await createHarness({
+      deferReactorStart: true,
+      providerBindings: [
+        {
+          threadId: markerThreadId,
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "full-access",
+          status: "stopped",
+          resumeCursor: { threadId: "provider-thread-marker" },
+          runtimePayload: {
+            modelSelection,
+            restartRecovery: makeProviderRestartRecoveryMarker({
+              interruptedProviderTurnId: markerTurnId,
+              shutdownAt: "2026-01-01T00:00:02.000Z",
+            }),
+          },
+          lastSeenAt: "2026-01-01T00:00:02.000Z",
+        },
+        {
+          threadId: legacyThreadId,
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "full-access",
+          status: "running",
+          resumeCursor: { threadId: "provider-thread-legacy" },
+          runtimePayload: {
+            modelSelection,
+            activeTurnId: legacyTurnId,
+          },
+          lastSeenAt: "2026-01-01T00:00:02.000Z",
+        },
+      ],
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-create-settled-legacy-thread"),
+        threadId: legacyThreadId,
+        projectId: asProjectId("project-1"),
+        title: "Settled legacy thread",
+        modelSelection,
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    const settleTurn = async (threadId: ThreadId, turnId: TurnId, suffix: string) => {
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-settled-turn-${suffix}`),
+          threadId,
+          message: {
+            messageId: asMessageId(`message-settled-${suffix}`),
+            role: "user",
+            text: "already finished",
+            attachments: [],
+          },
+          modelSelection,
+          interactionMode: "default",
+          runtimeMode: "full-access",
+          createdAt: "2026-01-01T00:00:00.500Z",
+        }),
+      );
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make(`server:settled-running-${suffix}`),
+          threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: "2026-01-01T00:00:01.000Z",
+          },
+          createdAt: "2026-01-01T00:00:01.000Z",
+        }),
+      );
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make(`server:settled-ready-${suffix}`),
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: "codex",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-01-01T00:00:01.500Z",
+          },
+          createdAt: "2026-01-01T00:00:01.500Z",
+        }),
+      );
+    };
+
+    await settleTurn(markerThreadId, markerTurnId, "marker");
+    await settleTurn(legacyThreadId, legacyTurnId, "legacy");
+    expect(
+      (await harness.readTurns(markerThreadId)).find((turn) => turn.turnId === markerTurnId)?.state,
+    ).toBe("completed");
+    expect(
+      (await harness.readTurns(legacyThreadId)).find((turn) => turn.turnId === legacyTurnId)?.state,
+    ).toBe("completed");
+
+    await harness.startReactor();
+    await harness.drain();
+
+    expect(harness.startSession).not.toHaveBeenCalled();
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    for (const threadId of [markerThreadId, legacyThreadId]) {
+      expect(harness.providerBindings.get(threadId)).toMatchObject({
+        status: "stopped",
+        runtimePayload: {
+          activeTurnId: null,
+          restartRecovery: null,
+          lastRuntimeEvent: "provider.restartRecovery.skipped",
+        },
+      });
+    }
+  });
+
   it("recovers across temporary-SQLite runtimes and does not repeat a completed recovery", async () => {
     const baseDir = NodeFS.mkdtempSync(
       NodePath.join(NodeOS.tmpdir(), "t3code-reactor-two-runtime-"),
