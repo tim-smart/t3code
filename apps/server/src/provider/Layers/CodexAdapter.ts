@@ -51,7 +51,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type CodexAdapterShape } from "../Services/CodexAdapter.ts";
-import { type DirenvEnvironment, identityDirenvEnvironmentResolver } from "../DirenvEnvironment.ts";
+import { type DirenvEnvironment, resolveProviderSessionEnvironment } from "../DirenvEnvironment.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
@@ -1377,7 +1377,6 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     options?.nativeEventLogger === undefined ? nativeEventLogger : undefined;
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const sessions = new Map<ThreadId, CodexAdapterSessionContext>();
-  const resolveEnvironment = options?.resolveEnvironment ?? identityDirenvEnvironmentResolver;
 
   const startSession: CodexAdapterShape["startSession"] = (input) =>
     Effect.scoped(
@@ -1401,20 +1400,13 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         const environment =
           input.cwd === undefined
             ? options?.environment
-            : yield* resolveEnvironment({
+            : yield* resolveProviderSessionEnvironment({
+                resolve: options?.resolveEnvironment,
+                provider: PROVIDER,
+                threadId: input.threadId,
                 cwd,
                 environment: options?.environment ?? process.env,
-              }).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapterProcessError({
-                      provider: PROVIDER,
-                      threadId: input.threadId,
-                      detail: cause.message,
-                      cause,
-                    }),
-                ),
-              );
+              });
 
         const existing = sessions.get(input.threadId);
         if (existing && !existing.stopped) {

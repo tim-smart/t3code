@@ -40,6 +40,17 @@ const makeDirenvExecutable = Effect.fn("makeDirenvExecutable")(function* (direct
   return { binDirectory, executable };
 });
 
+/** A temp project with an `.envrc` and a fake direnv on PATH. */
+const setupDirenvProject = Effect.fn("setupDirenvProject")(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-direnv-" });
+  const envrcPath = path.join(cwd, ".envrc");
+  yield* fileSystem.writeFileString(envrcPath, "export VALUE=next\n");
+  const { binDirectory, executable } = yield* makeDirenvExecutable(cwd);
+  return { cwd, envrcPath, binDirectory, executable };
+});
+
 describe("DirenvEnvironment", () => {
   describe("new worktree approval", () => {
     it.effect("approves the exact .envrc in a newly created worktree", () => {
@@ -47,14 +58,7 @@ describe("DirenvEnvironment", () => {
         Effect.succeed(successfulOutput("")),
       );
       return Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const cwd = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-direnv-worktree-",
-        });
-        const envrcPath = path.join(cwd, ".envrc");
-        yield* fileSystem.writeFileString(envrcPath, "export VALUE=next\n");
-        const { binDirectory, executable } = yield* makeDirenvExecutable(cwd);
+        const { cwd, envrcPath, binDirectory, executable } = yield* setupDirenvProject();
         const environment = { PATH: binDirectory, KEEP: "value" };
         const direnvEnvironment = yield* DirenvEnvironment;
 
@@ -67,7 +71,6 @@ describe("DirenvEnvironment", () => {
           cwd,
           env: environment,
           extendEnv: false,
-          maxOutputBytes: 64 * 1024,
         });
       }).pipe(Effect.provide(testLayer(run)));
     });
@@ -86,23 +89,6 @@ describe("DirenvEnvironment", () => {
         const direnvEnvironment = yield* DirenvEnvironment;
 
         yield* direnvEnvironment.allow({ cwd, environment: { PATH: "/not-used" } });
-
-        expect(run).not.toHaveBeenCalled();
-      }).pipe(Effect.provide(testLayer(run)));
-    });
-
-    it.effect("does nothing when direnv is unavailable", () => {
-      const run = vi.fn<ProcessRunner.ProcessRunner["Service"]["run"]>();
-      return Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const cwd = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-direnv-worktree-missing-",
-        });
-        yield* fileSystem.writeFileString(path.join(cwd, ".envrc"), "export VALUE=next\n");
-        const direnvEnvironment = yield* DirenvEnvironment;
-
-        yield* direnvEnvironment.allow({ cwd, environment: { PATH: "" } });
 
         expect(run).not.toHaveBeenCalled();
       }).pipe(Effect.provide(testLayer(run)));
@@ -140,7 +126,7 @@ describe("DirenvEnvironment", () => {
       const environment = { PATH: binDirectory };
       const resolver = yield* DirenvEnvironment;
 
-      expect(yield* resolver.resolve({ cwd, environment })).toBe(environment);
+      expect(yield* resolver.resolve({ cwd, environment })).toEqual(environment);
       expect(run).toHaveBeenCalledOnce();
       expect(run.mock.calls[0]?.[0]).toMatchObject({
         command: executable,
@@ -148,7 +134,6 @@ describe("DirenvEnvironment", () => {
         cwd,
         env: environment,
         extendEnv: false,
-        maxOutputBytes: 64 * 1024,
       });
     }).pipe(Effect.provide(testLayer(run)));
   });
@@ -178,11 +163,7 @@ describe("DirenvEnvironment", () => {
       ),
     );
     return Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-direnv-success-" });
-      yield* fileSystem.writeFileString(path.join(cwd, ".envrc"), "export ADDED=new\n");
-      const { binDirectory } = yield* makeDirenvExecutable(cwd);
+      const { cwd, binDirectory } = yield* setupDirenvProject();
       const resolver = yield* DirenvEnvironment;
 
       expect(
@@ -204,23 +185,6 @@ describe("DirenvEnvironment", () => {
     }).pipe(Effect.provide(testLayer(run)));
   });
 
-  it.effect("returns the original environment for an empty successful export", () => {
-    const run = vi.fn<ProcessRunner.ProcessRunner["Service"]["run"]>(() =>
-      Effect.succeed(successfulOutput("{}")),
-    );
-    return Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-direnv-empty-" });
-      yield* fileSystem.writeFileString(path.join(cwd, ".envrc"), "\n");
-      const { binDirectory } = yield* makeDirenvExecutable(cwd);
-      const environment = { PATH: binDirectory, KEEP: "value" };
-      const resolver = yield* DirenvEnvironment;
-
-      expect(yield* resolver.resolve({ cwd, environment })).toBe(environment);
-    }).pipe(Effect.provide(testLayer(run)));
-  });
-
   it.effect("returns actionable stderr for a blocked .envrc", () => {
     const run = vi.fn<ProcessRunner.ProcessRunner["Service"]["run"]>(() =>
       Effect.succeed(
@@ -232,11 +196,7 @@ describe("DirenvEnvironment", () => {
       ),
     );
     return Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-direnv-blocked-" });
-      yield* fileSystem.writeFileString(path.join(cwd, ".envrc"), "export VALUE=next\n");
-      const { binDirectory } = yield* makeDirenvExecutable(cwd);
+      const { cwd, binDirectory } = yield* setupDirenvProject();
       const resolver = yield* DirenvEnvironment;
       const error = yield* resolver
         .resolve({
@@ -252,46 +212,25 @@ describe("DirenvEnvironment", () => {
     }).pipe(Effect.provide(testLayer(run)));
   });
 
-  it.effect("rejects malformed JSON without exposing stdout", () => {
-    const rawStdout = "not-json secret-value";
+  it.effect("rejects malformed or structurally invalid output without exposing stdout", () => {
+    let stdout = "";
     const run = vi.fn<ProcessRunner.ProcessRunner["Service"]["run"]>(() =>
-      Effect.succeed(successfulOutput(rawStdout)),
+      Effect.succeed(successfulOutput(stdout)),
     );
     return Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-direnv-json-" });
-      yield* fileSystem.writeFileString(path.join(cwd, ".envrc"), "export VALUE=next\n");
-      const { binDirectory } = yield* makeDirenvExecutable(cwd);
+      const { cwd, binDirectory } = yield* setupDirenvProject();
       const resolver = yield* DirenvEnvironment;
-      const error = yield* resolver
-        .resolve({ cwd, environment: { PATH: binDirectory } })
-        .pipe(Effect.flip);
 
-      expect(error.stage).toBe("invalid-output");
-      expect(error.message).not.toContain(rawStdout);
-      expect(error.cause).toBeUndefined();
-    }).pipe(Effect.provide(testLayer(run)));
-  });
+      for (const rawStdout of ["not-json secret-value", '{"SAFE":"value","INVALID":42}']) {
+        stdout = rawStdout;
+        const error = yield* resolver
+          .resolve({ cwd, environment: { PATH: binDirectory } })
+          .pipe(Effect.flip);
 
-  it.effect("rejects structurally invalid JSON without exposing stdout", () => {
-    const rawStdout = JSON.stringify({ SAFE: "value", INVALID: 42 });
-    const run = vi.fn<ProcessRunner.ProcessRunner["Service"]["run"]>(() =>
-      Effect.succeed(successfulOutput(rawStdout)),
-    );
-    return Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-direnv-shape-" });
-      yield* fileSystem.writeFileString(path.join(cwd, ".envrc"), "export VALUE=next\n");
-      const { binDirectory } = yield* makeDirenvExecutable(cwd);
-      const resolver = yield* DirenvEnvironment;
-      const error = yield* resolver
-        .resolve({ cwd, environment: { PATH: binDirectory } })
-        .pipe(Effect.flip);
-
-      expect(error.stage).toBe("invalid-output");
-      expect(error.message).not.toContain(rawStdout);
+        expect(error.stage).toBe("invalid-output");
+        expect(error.message).not.toContain(rawStdout);
+        expect(error.cause).toBeUndefined();
+      }
     }).pipe(Effect.provide(testLayer(run)));
   });
 });

@@ -75,7 +75,7 @@ import {
   extractTodosAsPlan,
 } from "../acp/CursorAcpExtension.ts";
 import { type CursorAdapterShape } from "../Services/CursorAdapter.ts";
-import { type DirenvEnvironment, identityDirenvEnvironmentResolver } from "../DirenvEnvironment.ts";
+import { type DirenvEnvironment, resolveProviderSessionEnvironment } from "../DirenvEnvironment.ts";
 import { resolveCursorAcpBaseModelId } from "./CursorProvider.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
@@ -335,7 +335,6 @@ export function makeCursorAdapter(
     const makeAcpNativeLoggers = yield* makeAcpNativeLoggerFactory();
 
     const sessions = new Map<ThreadId, CursorSessionContext>();
-    const resolveEnvironment = options?.resolveEnvironment ?? identityDirenvEnvironmentResolver;
     const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
     const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
 
@@ -499,20 +498,13 @@ export function makeCursorAdapter(
           }
 
           const cwd = path.resolve(input.cwd.trim());
-          const environment = yield* resolveEnvironment({
+          const environment = yield* resolveProviderSessionEnvironment({
+            resolve: options?.resolveEnvironment,
+            provider: PROVIDER,
+            threadId: input.threadId,
             cwd,
             environment: options?.environment ?? process.env,
-          }).pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderAdapterProcessError({
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  detail: cause.message,
-                  cause,
-                }),
-            ),
-          );
+          });
           const cursorModelSelection =
             input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
           const existing = sessions.get(input.threadId);

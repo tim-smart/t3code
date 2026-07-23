@@ -293,6 +293,24 @@ beforeEach(() => {
 const advanceTestClock = (ms: number) =>
   TestClock.adjust(`${ms} millis`).pipe(Effect.andThen(Effect.yieldNow));
 
+const makeDirenvAdapterLayer = (
+  settings: typeof openCodeAdapterTestSettings,
+  resolveEnvironment: NonNullable<
+    NonNullable<Parameters<typeof makeOpenCodeAdapter>[1]>["resolveEnvironment"]
+  >,
+) =>
+  Layer.effect(
+    OpenCodeAdapter,
+    makeOpenCodeAdapter(settings, {
+      environment: { PATH: process.env.PATH, PROVIDER_VALUE: "configured" },
+      resolveEnvironment,
+    }),
+  ).pipe(
+    Layer.provideMerge(Layer.succeed(OpenCodeRuntime, OpenCodeRuntimeTestDouble)),
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(NodeServices.layer),
+  );
+
 it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
   it.effect("passes the resolved environment and project cwd to a local OpenCode server", () => {
     const resolvedEnvironment = { PATH: process.env.PATH, PROVIDER_VALUE: "from-direnv" };
@@ -303,17 +321,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
       binaryPath: "fake-opencode",
       serverUrl: "",
     });
-    const adapterLayer = Layer.effect(
-      OpenCodeAdapter,
-      makeOpenCodeAdapter(settings, {
-        environment: { PATH: process.env.PATH, PROVIDER_VALUE: "configured" },
-        resolveEnvironment,
-      }),
-    ).pipe(
-      Layer.provideMerge(Layer.succeed(OpenCodeRuntime, OpenCodeRuntimeTestDouble)),
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-      Layer.provideMerge(NodeServices.layer),
-    );
+    const adapterLayer = makeDirenvAdapterLayer(settings, resolveEnvironment);
 
     return Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
@@ -344,17 +352,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         }),
       ),
     );
-    const adapterLayer = Layer.effect(
-      OpenCodeAdapter,
-      makeOpenCodeAdapter(openCodeAdapterTestSettings, {
-        environment: { PATH: process.env.PATH, PROVIDER_VALUE: "configured" },
-        resolveEnvironment,
-      }),
-    ).pipe(
-      Layer.provideMerge(Layer.succeed(OpenCodeRuntime, OpenCodeRuntimeTestDouble)),
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-      Layer.provideMerge(NodeServices.layer),
-    );
+    const adapterLayer = makeDirenvAdapterLayer(openCodeAdapterTestSettings, resolveEnvironment);
 
     return Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
