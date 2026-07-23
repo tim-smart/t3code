@@ -184,6 +184,7 @@ describe("resolveBranchTriggerLabel", () => {
         resolvedActiveBranch: "main",
         resolvedActiveBranchIsRemote: false,
         startFromOrigin: true,
+        reuseBaseBranch: false,
       }),
     ).toBe("From origin/main");
   });
@@ -196,6 +197,7 @@ describe("resolveBranchTriggerLabel", () => {
         resolvedActiveBranch: "feature/demo",
         resolvedActiveBranchIsRemote: false,
         startFromOrigin: true,
+        reuseBaseBranch: false,
       }),
     ).toBe("From origin/feature/demo");
   });
@@ -208,6 +210,7 @@ describe("resolveBranchTriggerLabel", () => {
         resolvedActiveBranch: "main",
         resolvedActiveBranchIsRemote: false,
         startFromOrigin: false,
+        reuseBaseBranch: false,
       }),
     ).toBe("From main");
   });
@@ -220,6 +223,7 @@ describe("resolveBranchTriggerLabel", () => {
         resolvedActiveBranch: "origin/feature/demo",
         resolvedActiveBranchIsRemote: true,
         startFromOrigin: true,
+        reuseBaseBranch: false,
       }),
     ).toBe("From origin/feature/demo");
   });
@@ -232,6 +236,7 @@ describe("resolveBranchTriggerLabel", () => {
         resolvedActiveBranch: "upstream/feature/demo",
         resolvedActiveBranchIsRemote: true,
         startFromOrigin: true,
+        reuseBaseBranch: false,
       }),
     ).toBe("From upstream/feature/demo");
   });
@@ -244,6 +249,7 @@ describe("resolveBranchTriggerLabel", () => {
         resolvedActiveBranch: "main",
         resolvedActiveBranchIsRemote: false,
         startFromOrigin: true,
+        reuseBaseBranch: false,
       }),
     ).toBe("main");
     expect(
@@ -253,6 +259,7 @@ describe("resolveBranchTriggerLabel", () => {
         resolvedActiveBranch: null,
         resolvedActiveBranchIsRemote: null,
         startFromOrigin: true,
+        reuseBaseBranch: false,
       }),
     ).toBe("Select ref");
   });
@@ -265,8 +272,22 @@ describe("resolveBranchTriggerLabel", () => {
         resolvedActiveBranch: "upstream/feature/demo",
         resolvedActiveBranchIsRemote: null,
         startFromOrigin: true,
+        reuseBaseBranch: false,
       }),
     ).toBe("From upstream/feature/demo");
+  });
+
+  it("shows the plain ref when the selected branch will be reused", () => {
+    expect(
+      resolveBranchTriggerLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        resolvedActiveBranch: "feature/demo",
+        resolvedActiveBranchIsRemote: false,
+        startFromOrigin: true,
+        reuseBaseBranch: true,
+      }),
+    ).toBe("feature/demo");
   });
 });
 
