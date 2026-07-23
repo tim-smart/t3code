@@ -87,19 +87,15 @@ describe("scrollBoardFromWheel", () => {
       deltaY: -50,
     });
     expect(container.scrollLeft).toBe(230);
-  });
 
-  it("uses horizontal trackpad movement when it is the dominant axis", () => {
-    const container = makeContainer();
-
+    // Horizontal trackpad movement wins when it is the dominant axis.
     scrollBoardFromWheel(container, {
       ctrlKey: false,
       deltaMode: 0,
       deltaX: 60,
       deltaY: 10,
     });
-
-    expect(container.scrollLeft).toBe(260);
+    expect(container.scrollLeft).toBe(290);
   });
 
   it("normalizes line and page wheel deltas", () => {

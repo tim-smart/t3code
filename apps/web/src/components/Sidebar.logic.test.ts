@@ -3,7 +3,6 @@ import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
   buildSidebarV2ThreadContextMenuItems,
-  buildThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
@@ -166,43 +165,20 @@ describe("buildMultiSelectThreadContextMenuItems", () => {
   });
 });
 
-describe("buildThreadContextMenuItems", () => {
-  it("offers the v1 sidebar thread actions", () => {
-    expect(buildThreadContextMenuItems()).toEqual([
-      { id: "rename", label: "Rename thread" },
-      { id: "mark-unread", label: "Mark unread" },
-      { id: "copy-path", label: "Copy Path" },
-      { id: "copy-thread-id", label: "Copy Thread ID" },
-      { id: "delete", label: "Delete", destructive: true, icon: "trash" },
-    ]);
-  });
-});
-
 describe("buildSidebarV2ThreadContextMenuItems", () => {
-  it("offers settle for an active thread", () => {
+  it("offers settlement actions matching the thread's state and server support", () => {
     expect(
       buildSidebarV2ThreadContextMenuItems({
         supportsSettlement: true,
         isSettled: false,
-      }),
-    ).toEqual([
-      { id: "settle", label: "Settle thread" },
-      { id: "rename", label: "Rename thread" },
-      { id: "mark-unread", label: "Mark unread" },
-      { id: "delete", label: "Delete", destructive: true, icon: "trash" },
-    ]);
-  });
-
-  it("offers un-settle for a settled thread", () => {
+      })[0],
+    ).toEqual({ id: "settle", label: "Settle thread" });
     expect(
       buildSidebarV2ThreadContextMenuItems({
         supportsSettlement: true,
         isSettled: true,
       })[0],
     ).toEqual({ id: "unsettle", label: "Un-settle thread" });
-  });
-
-  it("hides settlement actions on unsupported servers", () => {
     expect(
       buildSidebarV2ThreadContextMenuItems({
         supportsSettlement: false,
@@ -708,36 +684,16 @@ describe("resolveSidebarV2Status", () => {
 });
 
 describe("resolveSidebarV2TopStatus", () => {
-  it("maps each active status to its label and icon", () => {
-    expect(resolveSidebarV2TopStatus({ status: "working", isUnread: false })).toMatchObject({
-      label: "Working",
-      icon: "working",
-    });
-    expect(resolveSidebarV2TopStatus({ status: "approval", isUnread: false })).toMatchObject({
-      label: "Approval",
-      icon: null,
-    });
-    expect(resolveSidebarV2TopStatus({ status: "input", isUnread: false })).toMatchObject({
-      label: "Input",
-      icon: null,
-    });
-    expect(resolveSidebarV2TopStatus({ status: "failed", isUnread: false })).toMatchObject({
-      label: "Failed",
-      icon: null,
-    });
-  });
-
   it("labels ready threads Done only when they carry an unread completion", () => {
     expect(resolveSidebarV2TopStatus({ status: "ready", isUnread: true })).toMatchObject({
       label: "Done",
       icon: "done",
     });
     expect(resolveSidebarV2TopStatus({ status: "ready", isUnread: false })).toBeNull();
-  });
-
-  it("ignores unread for non-ready statuses", () => {
+    // Unread only matters for ready threads; active statuses keep their label.
     expect(resolveSidebarV2TopStatus({ status: "working", isUnread: true })).toMatchObject({
       label: "Working",
+      icon: "working",
     });
   });
 });

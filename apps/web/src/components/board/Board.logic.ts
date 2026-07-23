@@ -7,8 +7,8 @@ import type {
   VcsStatusResult,
 } from "@t3tools/contracts";
 import { toSortableTimestamp } from "../../lib/threadSort";
-import type { ThreadStatusPill } from "../Sidebar.logic";
-import { resolveThreadPr, type ThreadPr } from "../ThreadStatusIndicators";
+import { isCompletionUnseen, type ThreadStatusPill } from "../Sidebar.logic";
+import { resolveThreadPr } from "../ThreadStatusIndicators";
 
 export type BoardColumnId = "working" | "review" | "published" | "settled";
 
@@ -32,6 +32,14 @@ export const BOARD_UNSETTLE_DROPPABLE_ID = "board-unsettle";
 export const BOARD_SETTLED_COLUMN_DROPPABLE_ID = "board-column-settled";
 
 export type BoardDropIntent = "archive" | "trash" | "settle" | "unsettle";
+
+/** Drag-overlay feedback per drop intent, shared by the card and group overlays. */
+export const BOARD_DROP_INTENT_OVERLAY_CLASSES: Record<BoardDropIntent, string> = {
+  archive: "scale-90 border-amber-500 opacity-60",
+  trash: "scale-90 border-destructive opacity-60",
+  settle: "scale-90 border-primary opacity-60",
+  unsettle: "scale-90 border-emerald-500 opacity-60",
+};
 
 /**
  * Intent implied by the droppable currently under the pointer, or null when
@@ -78,11 +86,10 @@ export interface BoardColumnInput {
 }
 
 /**
- * Whether the thread's latest turn completed after the user's last visit.
- * Explicit turn completions mirror `hasUnseenCompletion` in Sidebar.logic: a
- * missing last-visited timestamp counts as seen, an unparsable one as unseen.
- * A ready-session fallback requires a visit because it is only used when the
- * provider did not retain a latest-turn summary.
+ * Whether the thread completed after the user's last visit. Falls back to the
+ * ready-session timestamp for providers whose shell cannot retain a
+ * latest-turn summary; both sources follow the sidebar's `isCompletionUnseen`
+ * rules.
  */
 export function hasUnseenBoardCompletion(
   input: Pick<
@@ -90,17 +97,10 @@ export function hasUnseenBoardCompletion(
     "latestTurnCompletedAt" | "readySessionUpdatedAt" | "lastVisitedAt"
   >,
 ): boolean {
-  const completionAt = input.latestTurnCompletedAt ?? input.readySessionUpdatedAt;
-  if (!completionAt) return false;
-  const completedAt = Date.parse(completionAt);
-  if (Number.isNaN(completedAt)) return false;
-  // A ready session is a fallback for providers whose shell cannot retain a
-  // latest-turn summary. Unlike an explicit completion, it only counts once
-  // the thread has actually been visited.
-  if (!input.lastVisitedAt) return false;
-  const lastVisitedAt = Date.parse(input.lastVisitedAt);
-  if (Number.isNaN(lastVisitedAt)) return true;
-  return completedAt > lastVisitedAt;
+  return isCompletionUnseen(
+    input.latestTurnCompletedAt ?? input.readySessionUpdatedAt,
+    input.lastVisitedAt,
+  );
 }
 
 /**
@@ -129,21 +129,6 @@ export function resolveAppliedBoardGitStatus(
   return input.threadBranch !== null && input.gitStatus.refName === input.threadBranch
     ? input.gitStatus
     : null;
-}
-
-/**
- * PR attribution for board cards: branch-matched like the sidebar, but a
- * dedicated worktree's status is always the thread's own, so its PR applies
- * even when the worktree has switched to a different local ref name.
- */
-export function resolveBoardThreadPr(
-  input: Pick<BoardColumnInput, "threadBranch" | "hasDedicatedWorktree" | "gitStatus">,
-): ThreadPr | null {
-  return resolveThreadPr({
-    threadBranch: input.threadBranch,
-    gitStatus: input.gitStatus,
-    hasDedicatedWorktree: input.hasDedicatedWorktree,
-  });
 }
 
 /**
@@ -201,7 +186,7 @@ export function deriveBoardColumn(input: BoardColumnInput): BoardColumnId {
     // `effectiveSettled` upstream. When that is unavailable (pinned active,
     // server without the settlement capability) the branch classifies by its
     // git state alone, since it could not be moved out of Settled anyway.
-    const pr = resolveBoardThreadPr(input);
+    const pr = resolveThreadPr(input);
     const isCleanPushedFeatureBranch =
       gitStatus.aheadCount === 0 && gitStatus.hasUpstream && !gitStatus.isDefaultRef;
     if (pr?.state === "open" || isCleanPushedFeatureBranch) {
@@ -220,7 +205,7 @@ export interface BoardSortableThread {
 /** Sorts board threads newest-first by the timestamp selected for the column. */
 export function sortBoardThreads<T extends BoardSortableThread>(
   threads: readonly T[],
-  getSortTimestamp: (thread: T) => string | null = (thread) => thread.updatedAt,
+  getSortTimestamp: (thread: T) => string | null,
 ): T[] {
   return [...threads].sort((left, right) => {
     const leftTimestamp =
