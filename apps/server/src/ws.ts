@@ -71,6 +71,7 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as WorktreeLifecycle from "./orchestration/Services/WorktreeLifecycle.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -116,6 +117,7 @@ import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import { deriveLocalBranchNameFromRemoteRef } from "@t3tools/shared/git";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -328,6 +330,8 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.vcsListRefs, AuthOrchestrationReadScope],
   [WS_METHODS.vcsCreateWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsRemoveWorktree, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsPreviewWorktreeCleanup, AuthOrchestrationReadScope],
+  [WS_METHODS.vcsCleanupThreadWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsCreateRef, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsSwitchRef, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsInit, AuthOrchestrationOperateScope],
@@ -415,6 +419,7 @@ const makeWsRpcLayer = (
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const worktreeLifecycle = yield* WorktreeLifecycle.WorktreeLifecycle;
       const terminalManager = yield* TerminalManager.TerminalManager;
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
@@ -996,24 +1001,45 @@ const makeWsRpcLayer = (
             }
 
             if (bootstrap?.prepareWorktree) {
-              let worktreeBaseRef = bootstrap.prepareWorktree.baseBranch;
-              if (bootstrap.prepareWorktree.startFromOrigin) {
+              const prepareWorktree = bootstrap.prepareWorktree;
+              let worktreeBaseRef = prepareWorktree.baseBranch;
+              let worktreeNewRefName = prepareWorktree.branch;
+              let worktreeBaseRefName: string | undefined = prepareWorktree.baseBranch;
+              if (prepareWorktree.reuseBaseBranch) {
+                // Reuse the selected branch: check it out in the worktree
+                // instead of branching off it. A remote ref cannot be checked
+                // out directly (it would detach), so materialize it as its
+                // derived local branch; the branch keeps its own history, so
+                // skip the gh-merge-base config that new branches record.
+                const refsResult = yield* gitWorkflow.listRefs({
+                  cwd: prepareWorktree.projectCwd,
+                  query: prepareWorktree.baseBranch,
+                  includeMatchingRemoteRefs: true,
+                });
+                const selectedRef = refsResult.refs.find(
+                  (ref) => ref.name === prepareWorktree.baseBranch,
+                );
+                worktreeNewRefName = selectedRef?.isRemote
+                  ? deriveLocalBranchNameFromRemoteRef(prepareWorktree.baseBranch)
+                  : undefined;
+                worktreeBaseRefName = undefined;
+              } else if (prepareWorktree.startFromOrigin) {
                 yield* gitWorkflow.fetchRemote({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
+                  cwd: prepareWorktree.projectCwd,
                   remoteName: "origin",
                 });
                 const resolvedRemoteBase = yield* gitWorkflow.resolveRemoteTrackingCommit({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  refName: bootstrap.prepareWorktree.baseBranch,
+                  cwd: prepareWorktree.projectCwd,
+                  refName: prepareWorktree.baseBranch,
                   fallbackRemoteName: "origin",
                 });
                 worktreeBaseRef = resolvedRemoteBase.commitSha;
               }
               const worktree = yield* gitWorkflow.createWorktree({
-                cwd: bootstrap.prepareWorktree.projectCwd,
+                cwd: prepareWorktree.projectCwd,
                 refName: worktreeBaseRef,
-                newRefName: bootstrap.prepareWorktree.branch,
-                baseRefName: bootstrap.prepareWorktree.baseBranch,
+                ...(worktreeNewRefName !== undefined ? { newRefName: worktreeNewRefName } : {}),
+                ...(worktreeBaseRefName !== undefined ? { baseRefName: worktreeBaseRefName } : {}),
                 path: null,
               });
               targetWorktreePath = worktree.worktree.path;
@@ -1126,7 +1152,26 @@ const makeWsRpcLayer = (
                         Effect.orElseSucceed(() => false),
                       )
                   : false;
-              const result = yield* dispatchNormalizedCommand(normalizedCommand);
+              // Unarchive restores a missing worktree from the retained
+              // branch before the command commits; a failed restoration
+              // leaves the thread archived instead of silently detaching it
+              // to the main project checkout.
+              const result =
+                normalizedCommand.type === "thread.unarchive"
+                  ? yield* worktreeLifecycle
+                      .restoreThreadWorktree(
+                        { threadId: normalizedCommand.threadId },
+                        dispatchNormalizedCommand(normalizedCommand),
+                      )
+                      .pipe(
+                        Effect.mapError((error) =>
+                          toDispatchCommandError(
+                            error,
+                            "Failed to restore the thread's worktree before unarchive.",
+                          ),
+                        ),
+                      )
+                  : yield* dispatchNormalizedCommand(normalizedCommand);
               if (normalizedCommand.type === "thread.archive") {
                 if (shouldStopSessionAfterArchive) {
                   yield* Effect.gen(function* () {
@@ -1826,6 +1871,18 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
             gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsPreviewWorktreeCleanup]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsPreviewWorktreeCleanup,
+            worktreeLifecycle.previewCleanup(input),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsCleanupThreadWorktree]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsCleanupThreadWorktree,
+            worktreeLifecycle.cleanupThreadWorktree(input),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>

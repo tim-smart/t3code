@@ -1,6 +1,5 @@
 import { autoAnimate } from "@formkit/auto-animate";
 import { useAtomValue } from "@effect/atom-react";
-import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   scopeProjectRef,
@@ -23,6 +22,7 @@ import {
   PlusIcon,
   SearchIcon,
   ServerIcon,
+  SquareKanbanIcon,
   SquarePenIcon,
   Trash2Icon,
   Undo2Icon,
@@ -37,7 +37,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { useParams, useRouter } from "@tanstack/react-router";
+import { useLocation, useParams, useRouter } from "@tanstack/react-router";
 
 import {
   isAtomCommandInterrupted,
@@ -72,7 +72,7 @@ import {
 } from "../sidebarProjectGrouping";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import { useThreadActions } from "../hooks/useThreadActions";
+import { deleteThreadTargetsSequentially, useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
@@ -94,8 +94,10 @@ import { cn } from "~/lib/utils";
 import {
   formatWorkingDurationLabel,
   hasUnseenCompletion,
+  isThreadSettledForDisplay,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
+  buildSidebarV2ThreadContextMenuItems,
   resolveAdjacentThreadId,
   resolveSettledTimestamp,
   resolveSidebarV2Status,
@@ -717,7 +719,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               )}
               <span className="relative ml-auto flex h-5 min-w-8 shrink-0 items-center justify-end pl-1 text-xs">
                 <span className="tabular-nums text-muted-foreground/65 transition-opacity group-hover/v2-row:opacity-0">
-                  {topStatus ? (
+                  {props.jumpLabel ? (
+                    props.jumpLabel
+                  ) : topStatus ? (
                     <span
                       className={cn(
                         "inline-flex items-center gap-1 font-medium",
@@ -819,7 +823,7 @@ export default function SidebarV2() {
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
-  const { settleThread, unsettleThread, deleteThread } = useThreadActions();
+  const { settleThread, unsettleThread, deleteThread, renameThread } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -1176,17 +1180,15 @@ export default function SidebarV2() {
     const active: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
     for (const thread of visible) {
-      // Threads on servers without the settlement capability (old server,
-      // or descriptor not loaded yet) never classify as settled: the user
-      // could neither un-settle nor pin them, so auto-settling them would
-      // strand rows in a tail with no working affordances.
-      const supportsSettlement =
-        serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement === true;
       const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
       const changeRequestState = changeRequestStateByKey.get(threadKey) ?? null;
       if (
-        supportsSettlement &&
-        effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })
+        isThreadSettledForDisplay(thread, {
+          serverConfigs,
+          now,
+          autoSettleAfterDays,
+          changeRequestState,
+        })
       ) {
         settled.push(thread);
       } else {
@@ -1329,31 +1331,10 @@ export default function SidebarV2() {
   const cancelThreadRename = useCallback(() => setRenamingThreadKey(null), []);
   const commitThreadRename = useCallback(
     (threadRef: ScopedThreadRef, title: string, originalTitle: string) => {
-      void (async () => {
-        const trimmed = title.trim();
-        setRenamingThreadKey(null);
-        if (trimmed.length === 0) {
-          toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
-          return;
-        }
-        if (trimmed === originalTitle) return;
-        const result = await updateThreadMetadata({
-          environmentId: threadRef.environmentId,
-          input: { threadId: threadRef.threadId, title: trimmed },
-        });
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to rename thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
-      })();
+      setRenamingThreadKey(null);
+      void renameThread(threadRef, title, originalTitle);
     },
-    [updateThreadMetadata],
+    [renameThread],
   );
 
   const handleThreadClick = useCallback(
@@ -1522,31 +1503,23 @@ export default function SidebarV2() {
         );
         if (confirmed._tag === "Failure" || !confirmed.value) return;
       }
-      // Grown as deletions actually land, never seeded with the whole batch:
-      // orphaned-worktree detection must only discount threads that are
-      // really gone, or the first delete would treat still-alive batch mates
-      // as deleted and remove a worktree they still point at.
-      const deletedThreadKeys = new Set<string>();
-      for (const threadKey of threadKeys) {
+      const deleteTargets = threadKeys.flatMap((threadKey) => {
         const thread = threadByKeyRef.current.get(threadKey);
-        if (!thread) continue;
-        const result = await deleteThread(scopeThreadRef(thread.environmentId, thread.id), {
-          deletedThreadKeys,
-        });
-        if (result._tag === "Failure") {
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Failed to delete threads",
-                description: error instanceof Error ? error.message : "An error occurred.",
-              }),
-            );
-          }
-          return;
+        return thread ? [scopeThreadRef(thread.environmentId, thread.id)] : [];
+      });
+      const failure = await deleteThreadTargetsSequentially(deleteTargets, deleteThread);
+      if (failure) {
+        if (!isAtomCommandInterrupted(failure)) {
+          const error = squashAtomCommandFailure(failure);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to delete threads",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
         }
-        deletedThreadKeys.add(threadKey);
+        return;
       }
       removeFromSelection(threadKeys);
     },
@@ -1583,26 +1556,11 @@ export default function SidebarV2() {
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            [
-              ...(thread.branch
-                ? [
-                    {
-                      id: "new-thread-on-branch",
-                      label: `New thread on ${thread.branch}`,
-                    },
-                  ]
-                : []),
-              ...(supportsSettlement
-                ? [
-                    isSettled
-                      ? { id: "unsettle", label: "Un-settle thread" }
-                      : { id: "settle", label: "Settle thread" },
-                  ]
-                : []),
-              { id: "rename", label: "Rename thread" },
-              { id: "mark-unread", label: "Mark unread" },
-              { id: "delete", label: "Delete", destructive: true, icon: "trash" },
-            ],
+            buildSidebarV2ThreadContextMenuItems({
+              supportsSettlement,
+              isSettled,
+              branch: thread.branch,
+            }),
             position,
           ),
         );
@@ -1686,6 +1644,11 @@ export default function SidebarV2() {
     ],
   );
 
+  const handleBoardClick = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void router.navigate({ to: "/board" });
+  }, [isMobile, router, setOpenMobile]);
+
   // Thread jump (cmd+1..9) and prev/next traversal reuse the same commands as
   // v1 — the keybinding layer is shared, only the ordered list differs.
   const routeTerminalOpen = useTerminalUiStateStore((state) =>
@@ -1704,6 +1667,12 @@ export default function SidebarV2() {
           modelPickerOpen: isModelPickerOpen(),
         },
       });
+      if (command === "board.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        handleBoardClick();
+        return;
+      }
       const navigateToThreadKey = (targetThreadKey: string | null) => {
         if (!targetThreadKey) return false;
         const targetThread = threadByKey.get(targetThreadKey);
@@ -1731,6 +1700,7 @@ export default function SidebarV2() {
     window.addEventListener("keydown", onWindowKeyDown);
     return () => window.removeEventListener("keydown", onWindowKeyDown);
   }, [
+    handleBoardClick,
     keybindings,
     navigateToThread,
     orderedThreadKeys,
@@ -1777,12 +1747,16 @@ export default function SidebarV2() {
     openCommandPalette({ open: "new-thread-in" });
   }, [isMobile, newThreadContext, projectGroups.length, setOpenMobile]);
 
+  const pathname = useLocation({ select: (l) => l.pathname });
+  const isBoardActive = pathname === "/board";
+
   const commandPaletteShortcutLabel = shortcutLabelForCommand(keybindings, "commandPalette.toggle");
   // Same resolution as v1: prefer the local-thread binding, fall back to
   // chat.new, no platform gating — web users have working shortcuts too.
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.newLocal") ??
     shortcutLabelForCommand(keybindings, "chat.new");
+  const boardShortcutLabel = shortcutLabelForCommand(keybindings, "board.open");
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
@@ -1809,6 +1783,31 @@ export default function SidebarV2() {
                   </Kbd>
                 ) : null}
               </CommandDialogTrigger>
+            </div>
+            <div className="shrink-0">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <SidebarMenuButton
+                      size="sm"
+                      type="button"
+                      className={cn(
+                        "relative size-8 justify-center rounded-md border-0 bg-transparent p-0 text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
+                        isBoardActive && "bg-sidebar-row-hover text-sidebar-foreground",
+                      )}
+                      onClick={handleBoardClick}
+                      aria-label="Board"
+                      aria-current={isBoardActive ? "page" : undefined}
+                      data-testid="sidebar-board-link"
+                    />
+                  }
+                >
+                  <SquareKanbanIcon className="size-4 shrink-0 text-sidebar-muted-foreground/80" />
+                </TooltipTrigger>
+                <TooltipPopup side="right">
+                  {boardShortcutLabel ? `Board (${boardShortcutLabel})` : "Board"}
+                </TooltipPopup>
+              </Tooltip>
             </div>
             <div className="shrink-0">
               <Tooltip>

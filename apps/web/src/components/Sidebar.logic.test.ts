@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
+  buildSidebarV2ThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
@@ -17,6 +18,7 @@ import {
   resolveSidebarStageBadgeLabel,
   resolveThreadRowClassName,
   resolveSidebarV2Status,
+  resolveSidebarV2TopStatus,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
   formatWorkingDurationLabel,
@@ -160,6 +162,33 @@ describe("buildMultiSelectThreadContextMenuItems", () => {
     expect(
       buildMultiSelectThreadContextMenuItems({ count: 2, hasRunningThread: true }),
     ).toContainEqual({ id: "archive", label: "Archive (2)", disabled: true });
+  });
+});
+
+describe("buildSidebarV2ThreadContextMenuItems", () => {
+  it("offers settlement actions matching the thread's state and server support", () => {
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        supportsSettlement: true,
+        isSettled: false,
+      })[0],
+    ).toEqual({ id: "settle", label: "Settle thread" });
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        supportsSettlement: true,
+        isSettled: true,
+      })[0],
+    ).toEqual({ id: "unsettle", label: "Un-settle thread" });
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        supportsSettlement: false,
+        isSettled: false,
+      }),
+    ).toEqual([
+      { id: "rename", label: "Rename thread" },
+      { id: "mark-unread", label: "Mark unread" },
+      { id: "delete", label: "Delete", destructive: true, icon: "trash" },
+    ]);
   });
 });
 
@@ -651,6 +680,21 @@ describe("resolveSidebarV2Status", () => {
 
   it("defaults to ready with no session", () => {
     expect(resolveSidebarV2Status({ ...idle, session: null })).toBe("ready");
+  });
+});
+
+describe("resolveSidebarV2TopStatus", () => {
+  it("labels ready threads Done only when they carry an unread completion", () => {
+    expect(resolveSidebarV2TopStatus({ status: "ready", isUnread: true })).toMatchObject({
+      label: "Done",
+      icon: "done",
+    });
+    expect(resolveSidebarV2TopStatus({ status: "ready", isUnread: false })).toBeNull();
+    // Unread only matters for ready threads; active statuses keep their label.
+    expect(resolveSidebarV2TopStatus({ status: "working", isUnread: true })).toMatchObject({
+      label: "Working",
+      icon: "working",
+    });
   });
 });
 
