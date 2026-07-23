@@ -38,7 +38,7 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { type OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
-import { type DirenvEnvironment, identityDirenvEnvironmentResolver } from "../DirenvEnvironment.ts";
+import { type DirenvEnvironment, resolveProviderSessionEnvironment } from "../DirenvEnvironment.ts";
 import {
   buildOpenCodePermissionRules,
   OpenCodeRuntime,
@@ -588,7 +588,6 @@ export function makeOpenCodeAdapter(
       options?.nativeEventLogger === undefined ? nativeEventLogger : undefined;
     const runtimeEvents = yield* Queue.unbounded<ProviderRuntimeEvent>();
     const sessions = new Map<ThreadId, OpenCodeSessionContext>();
-    const resolveEnvironment = options?.resolveEnvironment ?? identityDirenvEnvironmentResolver;
     const randomUUIDv4 = crypto.randomUUIDv4.pipe(
       Effect.mapError(
         (cause) =>
@@ -1204,20 +1203,13 @@ export function makeOpenCodeAdapter(
         const environment =
           input.cwd === undefined || serverUrl?.trim()
             ? options?.environment
-            : yield* resolveEnvironment({
+            : yield* resolveProviderSessionEnvironment({
+                resolve: options?.resolveEnvironment,
+                provider: PROVIDER,
+                threadId: input.threadId,
                 cwd: directory,
                 environment: options?.environment ?? process.env,
-              }).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapterProcessError({
-                      provider: PROVIDER,
-                      threadId: input.threadId,
-                      detail: cause.message,
-                      cause,
-                    }),
-                ),
-              );
+              });
         const resumeSessionId = parseOpenCodeResume(input.resumeCursor)?.sessionId;
         const existing = sessions.get(input.threadId);
         if (existing) {

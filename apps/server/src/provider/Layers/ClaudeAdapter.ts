@@ -89,7 +89,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
-import { type DirenvEnvironment, identityDirenvEnvironmentResolver } from "../DirenvEnvironment.ts";
+import { type DirenvEnvironment, resolveProviderSessionEnvironment } from "../DirenvEnvironment.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.UnknownFromJsonString);
@@ -1346,7 +1346,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, baseEnvironment).pipe(
     Effect.provideService(Path.Path, path),
   );
-  const resolveEnvironment = options?.resolveEnvironment ?? identityDirenvEnvironmentResolver;
   const claudeSdkExecutablePath = yield* resolveClaudeSdkExecutablePath(
     claudeSettings.binaryPath,
     claudeEnvironment,
@@ -3159,18 +3158,15 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const sessionEnvironment =
         cwd === undefined
           ? claudeEnvironment
-          : yield* resolveEnvironment({ cwd, environment: baseEnvironment }).pipe(
+          : yield* resolveProviderSessionEnvironment({
+              resolve: options?.resolveEnvironment,
+              provider: PROVIDER,
+              threadId: input.threadId,
+              cwd,
+              environment: baseEnvironment,
+            }).pipe(
               Effect.flatMap((environment) => makeClaudeEnvironment(claudeSettings, environment)),
               Effect.provideService(Path.Path, path),
-              Effect.mapError(
-                (cause) =>
-                  new ProviderAdapterProcessError({
-                    provider: PROVIDER,
-                    threadId: input.threadId,
-                    detail: cause.message,
-                    cause,
-                  }),
-              ),
             );
 
       const existingContext = sessions.get(input.threadId);
