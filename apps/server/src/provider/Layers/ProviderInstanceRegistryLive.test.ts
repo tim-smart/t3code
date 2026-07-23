@@ -46,11 +46,7 @@ import { CursorDriver } from "../Drivers/CursorDriver.ts";
 import { GrokDriver } from "../Drivers/GrokDriver.ts";
 import { OpenCodeDriver } from "../Drivers/OpenCodeDriver.ts";
 import { OpenCodeRuntimeLive } from "../opencodeRuntime.ts";
-import {
-  DirenvEnvironment,
-  identityDirenvEnvironmentResolver,
-  noopDirenvEnvironmentAllow,
-} from "../DirenvEnvironment.ts";
+import * as DirenvEnvironment from "../DirenvEnvironment.ts";
 import { NoOpProviderEventLoggers, ProviderEventLoggers } from "./ProviderEventLoggers.ts";
 import { makeProviderInstanceRegistry } from "./ProviderInstanceRegistryLive.ts";
 
@@ -117,12 +113,7 @@ describe("ProviderInstanceRegistryLive — multi-instance codex slice", () => {
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(TestHttpClientLive),
     Layer.provideMerge(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
-    Layer.provideMerge(
-      Layer.succeed(DirenvEnvironment, {
-        allow: noopDirenvEnvironmentAllow,
-        resolve: identityDirenvEnvironmentResolver,
-      }),
-    ),
+    Layer.provideMerge(DirenvEnvironment.layerNoop),
   );
 
   it.live("boots two independent codex instances from a ProviderInstanceConfigMap", () =>
@@ -255,12 +246,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
   // `FileSystem` dep while keeping everything else surfaced to the test.
   const infraLayer = OpenCodeRuntimeLive.pipe(
     Layer.provideMerge(NodeServices.layer),
-    Layer.provideMerge(
-      Layer.succeed(DirenvEnvironment, {
-        allow: noopDirenvEnvironmentAllow,
-        resolve: identityDirenvEnvironmentResolver,
-      }),
-    ),
+    Layer.provideMerge(DirenvEnvironment.layerNoop),
   );
   const testLayer = ServerConfig.layerTest(process.cwd(), {
     prefix: "provider-instance-registry-all-drivers-test",

@@ -196,11 +196,9 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       });
 
       assert.equal(resolveEnvironment.mock.calls[0]?.[0].cwd, process.cwd());
-      const requests = yield* waitForJsonLogMatch(
-        requestLogPath,
-        (entry) => entry.method === "initialize",
-      );
-      assert.isTrue(requests.some((entry) => entry.method === "initialize"));
+      // The wait only succeeds once the child saw the resolved environment
+      // (the request log path only exists inside it).
+      yield* waitForJsonLogMatch(requestLogPath, (entry) => entry.method === "initialize");
       yield* adapter.stopSession(threadId);
     }),
   );
