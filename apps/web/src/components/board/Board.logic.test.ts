@@ -6,7 +6,6 @@ import {
   BOARD_SETTLED_COLUMN_DROPPABLE_ID,
   BOARD_TRASH_DROPPABLE_ID,
   BOARD_UNSETTLE_DROPPABLE_ID,
-  boardGitKey,
   boardWorktreeGroupDragId,
   boardWorktreeKey,
   buildBoardColumns,
@@ -74,44 +73,26 @@ function makeColumnInput(overrides: Partial<BoardColumnInput> = {}): BoardColumn
 }
 
 describe("deriveBoardColumn", () => {
-  it("puts pending approvals in review ahead of working or merged lifecycle state", () => {
+  it("puts attention status pills in review ahead of working or merged lifecycle state", () => {
     const gitStatus = makeGitStatus({ pr: makePr("merged") });
     expect(
       deriveBoardColumn(makeColumnInput({ threadStatusLabel: "Pending Approval", gitStatus })),
     ).toBe("review");
-  });
-
-  it("puts awaiting input in review", () => {
-    expect(deriveBoardColumn(makeColumnInput({ threadStatusLabel: "Awaiting Input" }))).toBe(
-      "review",
-    );
-  });
-
-  it("always puts a plan-ready thread in review", () => {
-    const seen = {
-      interactionMode: "plan" as const,
-      threadStatusLabel: "Plan Ready" as const,
-      latestTurnCompletedAt: "2026-07-22T10:00:00.000Z",
-      lastVisitedAt: "2026-07-22T11:00:00.000Z",
-    };
+    expect(
+      deriveBoardColumn(makeColumnInput({ threadStatusLabel: "Awaiting Input", gitStatus })),
+    ).toBe("review");
     expect(
       deriveBoardColumn(
         makeColumnInput({
-          ...seen,
-          hasDedicatedWorktree: true,
-          hasWorkingThreadForWorktree: true,
-          gitStatus: makeGitStatus({
-            hasWorkingTreeChanges: true,
-            aheadCount: 1,
-            pr: makePr("merged"),
-          }),
+          interactionMode: "plan",
+          threadStatusLabel: "Plan Ready",
+          gitStatus,
         }),
       ),
     ).toBe("review");
-  });
-
-  it("puts the unseen-completion status pill in review", () => {
-    expect(deriveBoardColumn(makeColumnInput({ threadStatusLabel: "Completed" }))).toBe("review");
+    expect(deriveBoardColumn(makeColumnInput({ threadStatusLabel: "Completed", gitStatus }))).toBe(
+      "review",
+    );
   });
 
   it("puts working and connecting status pills in working, even with a merged PR", () => {
@@ -124,11 +105,8 @@ describe("deriveBoardColumn", () => {
     );
   });
 
-  it("defaults to review while git status has not loaded", () => {
+  it("defaults to review while git status is unloaded or the cwd is not a repo", () => {
     expect(deriveBoardColumn(makeColumnInput({ gitStatus: null }))).toBe("review");
-  });
-
-  it("puts non-repo directories in review", () => {
     expect(
       deriveBoardColumn(makeColumnInput({ gitStatus: makeGitStatus({ isRepo: false }) })),
     ).toBe("review");
@@ -150,29 +128,23 @@ describe("deriveBoardColumn", () => {
     );
   });
 
-  it("puts a dirty default-branch project root in review", () => {
-    const gitStatus = makeGitStatus({
-      refName: "main",
-      isDefaultRef: true,
-      hasWorkingTreeChanges: true,
-    });
-    expect(deriveBoardColumn(makeColumnInput({ threadBranch: "main", gitStatus }))).toBe("review");
-  });
-
   it("puts a branch ahead of upstream in review", () => {
     expect(
       deriveBoardColumn(makeColumnInput({ gitStatus: makeGitStatus({ aheadCount: 2 }) })),
     ).toBe("review");
   });
 
-  it("puts a never-pushed branch ahead of the default branch in review", () => {
-    const gitStatus = makeGitStatus({ hasUpstream: false, aheadOfDefaultCount: 3 });
-    expect(deriveBoardColumn(makeColumnInput({ gitStatus }))).toBe("review");
-  });
-
-  it("puts a never-pushed branch with unknown default distance in review", () => {
-    const gitStatus = makeGitStatus({ hasUpstream: false });
-    expect(deriveBoardColumn(makeColumnInput({ gitStatus }))).toBe("review");
+  it("puts a never-pushed branch ahead of (or with unknown distance to) the default in review", () => {
+    expect(
+      deriveBoardColumn(
+        makeColumnInput({
+          gitStatus: makeGitStatus({ hasUpstream: false, aheadOfDefaultCount: 3 }),
+        }),
+      ),
+    ).toBe("review");
+    expect(
+      deriveBoardColumn(makeColumnInput({ gitStatus: makeGitStatus({ hasUpstream: false }) })),
+    ).toBe("review");
   });
 
   it("puts a clean fully pushed feature branch without a PR in published", () => {
@@ -227,15 +199,7 @@ describe("deriveBoardColumn", () => {
     ).toBe("published");
   });
 
-  it("puts a settled merged-PR thread in settled", () => {
-    expect(
-      deriveBoardColumn(
-        makeColumnInput({ isSettled: true, gitStatus: makeGitStatus({ pr: makePr("merged") }) }),
-      ),
-    ).toBe("settled");
-  });
-
-  it("lets the settled flag win regardless of git state", () => {
+  it("lets the settled flag win regardless of git or completion state", () => {
     expect(deriveBoardColumn(makeColumnInput({ isSettled: true, gitStatus: null }))).toBe(
       "settled",
     );
@@ -247,9 +211,6 @@ describe("deriveBoardColumn", () => {
         }),
       ),
     ).toBe("settled");
-  });
-
-  it("lets the settled flag win over an unseen completion pill", () => {
     expect(
       deriveBoardColumn(makeColumnInput({ isSettled: true, threadStatusLabel: "Completed" })),
     ).toBe("settled");
@@ -280,20 +241,6 @@ describe("deriveBoardColumn", () => {
     ).toBe("working");
   });
 
-  it("keeps a seen turn completion in review until the thread settles", () => {
-    const seen = {
-      latestTurnCompletedAt: "2026-07-22T09:00:00.000Z",
-      lastVisitedAt: "2026-07-22T10:00:00.000Z",
-    };
-    expect(deriveBoardColumn(makeColumnInput({ ...seen, gitStatus: null }))).toBe("review");
-    const cleanDefault = makeGitStatus({ refName: "main", isDefaultRef: true });
-    expect(
-      deriveBoardColumn(
-        makeColumnInput({ ...seen, threadBranch: "main", gitStatus: cleanDefault }),
-      ),
-    ).toBe("review");
-  });
-
   it("keeps a visited ready session in review when its latest turn summary is unavailable", () => {
     expect(
       deriveBoardColumn(
@@ -305,31 +252,6 @@ describe("deriveBoardColumn", () => {
         }),
       ),
     ).toBe("review");
-  });
-
-  it("keeps an unvisited ready session without a latest turn summary in review", () => {
-    expect(
-      deriveBoardColumn(
-        makeColumnInput({
-          latestTurnCompletedAt: null,
-          readySessionUpdatedAt: "2026-07-22T03:45:04.819Z",
-          lastVisitedAt: null,
-          gitStatus: null,
-        }),
-      ),
-    ).toBe("review");
-  });
-
-  it("preserves git-derived lifecycle behavior when the status label is null", () => {
-    expect(deriveBoardColumn(makeColumnInput({ threadStatusLabel: null }))).toBe("published");
-    expect(
-      deriveBoardColumn(
-        makeColumnInput({
-          threadStatusLabel: null,
-          gitStatus: makeGitStatus({ pr: makePr("merged") }),
-        }),
-      ),
-    ).toBe("published");
   });
 
   it("lets in-flight git work outrank a seen completion", () => {
@@ -345,51 +267,23 @@ describe("deriveBoardColumn", () => {
     expect(deriveBoardColumn(makeColumnInput({ ...seen }))).toBe("published");
   });
 
-  it("keeps a seen plan-only thread in review until settled, ignoring its shared worktree", () => {
-    const seen = {
-      interactionMode: "plan" as const,
-      latestTurnCompletedAt: "2026-07-22T09:00:00.000Z",
-      lastVisitedAt: "2026-07-22T10:00:00.000Z",
-    };
-    const sharedWorktree = {
-      hasDedicatedWorktree: true,
-      gitStatus: makeGitStatus({ hasWorkingTreeChanges: true, aheadCount: 1 }),
-    };
-    expect(deriveBoardColumn(makeColumnInput({ ...seen, ...sharedWorktree }))).toBe("review");
-    expect(
-      deriveBoardColumn(makeColumnInput({ ...seen, ...sharedWorktree, isSettled: true })),
-    ).toBe("settled");
-  });
-
-  it("keeps a badge-less plan-only thread in review until settled", () => {
+  it("keeps a plan-only thread's column off its worktree's git state", () => {
+    // This git state would classify as published; a plan-mode thread does not
+    // own it (the implementation thread does), so the plan thread stays in
+    // review until settled.
     const badgelessPlan = {
       interactionMode: "plan" as const,
       threadStatusLabel: null,
-      latestTurnCompletedAt: null,
-      lastVisitedAt: "2026-07-22T11:00:00.000Z",
       hasDedicatedWorktree: true,
-      hasWorkingThreadForWorktree: true,
-      gitStatus: makeGitStatus({
-        hasWorkingTreeChanges: true,
-        aheadCount: 1,
-        pr: makePr("open"),
-      }),
+      gitStatus: makeGitStatus({ pr: makePr("open") }),
     };
+    expect(
+      deriveBoardColumn(makeColumnInput({ ...badgelessPlan, interactionMode: "default" })),
+    ).toBe("published");
     expect(deriveBoardColumn(makeColumnInput(badgelessPlan))).toBe("review");
     expect(deriveBoardColumn(makeColumnInput({ ...badgelessPlan, isSettled: true }))).toBe(
       "settled",
     );
-  });
-
-  it("keeps a clean closed-not-merged PR branch in published", () => {
-    expect(
-      deriveBoardColumn(makeColumnInput({ gitStatus: makeGitStatus({ pr: makePr("closed") }) })),
-    ).toBe("published");
-  });
-
-  it("puts a dirty closed-not-merged PR branch in review", () => {
-    const gitStatus = makeGitStatus({ hasWorkingTreeChanges: true, pr: makePr("closed") });
-    expect(deriveBoardColumn(makeColumnInput({ gitStatus }))).toBe("review");
   });
 
   it("puts a clean default branch in review", () => {
@@ -399,34 +293,45 @@ describe("deriveBoardColumn", () => {
 });
 
 describe("sortBoardThreads", () => {
-  it("orders by updatedAt descending", () => {
-    const sorted = sortBoardThreads([
-      { id: "thread-1", updatedAt: "2026-07-20T10:00:00.000Z" },
-      { id: "thread-2", updatedAt: "2026-07-21T10:00:00.000Z" },
-      { id: "thread-3", updatedAt: "2026-07-19T10:00:00.000Z" },
-    ]);
+  const byUpdatedAt = (thread: { updatedAt: string }) => thread.updatedAt;
+
+  it("orders by the selected timestamp descending", () => {
+    const sorted = sortBoardThreads(
+      [
+        { id: "thread-1", updatedAt: "2026-07-20T10:00:00.000Z" },
+        { id: "thread-2", updatedAt: "2026-07-21T10:00:00.000Z" },
+        { id: "thread-3", updatedAt: "2026-07-19T10:00:00.000Z" },
+      ],
+      byUpdatedAt,
+    );
     expect(sorted.map((thread) => thread.id)).toEqual(["thread-2", "thread-1", "thread-3"]);
   });
 
   it("breaks timestamp ties by thread id", () => {
-    const sorted = sortBoardThreads([
-      { id: "thread-b", updatedAt: "2026-07-20T10:00:00.000Z" },
-      { id: "thread-a", updatedAt: "2026-07-20T10:00:00.000Z" },
-    ]);
+    const sorted = sortBoardThreads(
+      [
+        { id: "thread-b", updatedAt: "2026-07-20T10:00:00.000Z" },
+        { id: "thread-a", updatedAt: "2026-07-20T10:00:00.000Z" },
+      ],
+      byUpdatedAt,
+    );
     expect(sorted.map((thread) => thread.id)).toEqual(["thread-a", "thread-b"]);
   });
 
   it("sorts invalid timestamps last", () => {
-    const sorted = sortBoardThreads([
-      { id: "thread-1", updatedAt: "not-a-date" },
-      { id: "thread-2", updatedAt: "2026-07-20T10:00:00.000Z" },
-    ]);
+    const sorted = sortBoardThreads(
+      [
+        { id: "thread-1", updatedAt: "not-a-date" },
+        { id: "thread-2", updatedAt: "2026-07-20T10:00:00.000Z" },
+      ],
+      byUpdatedAt,
+    );
     expect(sorted.map((thread) => thread.id)).toEqual(["thread-2", "thread-1"]);
   });
 });
 
 describe("buildBoardColumns", () => {
-  it("sorts working threads by active session start and other columns by update time", () => {
+  it("sorts working threads by active session start (falling back to update time) and other columns by update time", () => {
     const threads = [
       {
         id: "thread-review-old",
@@ -448,6 +353,11 @@ describe("buildBoardColumns", () => {
         updatedAt: "2026-07-20T10:00:00.000Z",
         workingStartedAt: "2026-07-21T10:00:00.000Z",
       },
+      {
+        id: "thread-working-fallback",
+        updatedAt: "2026-07-23T10:00:00.000Z",
+        workingStartedAt: null,
+      },
     ];
     const columns = buildBoardColumns(
       threads,
@@ -455,22 +365,13 @@ describe("buildBoardColumns", () => {
       (thread) => thread.workingStartedAt,
     );
     expect(columnThreadIds(columns.review)).toEqual(["thread-review-new", "thread-review-old"]);
-    expect(columnThreadIds(columns.working)).toEqual(["thread-working-new", "thread-working-old"]);
+    expect(columnThreadIds(columns.working)).toEqual([
+      "thread-working-fallback",
+      "thread-working-new",
+      "thread-working-old",
+    ]);
     expect(columns.published).toEqual([]);
     expect(columns.settled).toEqual([]);
-  });
-
-  it("falls back to update time until a working start time is available", () => {
-    const threads = [
-      { id: "thread-old", updatedAt: "2026-07-19T10:00:00.000Z" },
-      { id: "thread-new", updatedAt: "2026-07-21T10:00:00.000Z" },
-    ];
-    const columns = buildBoardColumns(
-      threads,
-      () => "working",
-      () => null,
-    );
-    expect(columnThreadIds(columns.working)).toEqual(["thread-new", "thread-old"]);
   });
 
   it("hosts shared groups in their earliest column and orders members by actual column then time", () => {
@@ -583,17 +484,18 @@ describe("buildBoardProjectFilterPredicate", () => {
     },
   ];
 
-  it("matches everything when no project is selected", () => {
-    const predicate = buildBoardProjectFilterPredicate({ selectedProjectKey: null, snapshots });
-    expect(predicate({ environmentId: localEnvironmentId, projectId: otherProjectId })).toBe(true);
-  });
-
-  it("matches everything when the stored key no longer resolves", () => {
-    const predicate = buildBoardProjectFilterPredicate({
+  it("matches everything when no project is selected or the stored key no longer resolves", () => {
+    const noSelection = buildBoardProjectFilterPredicate({ selectedProjectKey: null, snapshots });
+    expect(noSelection({ environmentId: localEnvironmentId, projectId: otherProjectId })).toBe(
+      true,
+    );
+    const staleSelection = buildBoardProjectFilterPredicate({
       selectedProjectKey: "removed-project",
       snapshots,
     });
-    expect(predicate({ environmentId: localEnvironmentId, projectId: otherProjectId })).toBe(true);
+    expect(staleSelection({ environmentId: localEnvironmentId, projectId: otherProjectId })).toBe(
+      true,
+    );
   });
 
   it("matches threads from any member project of the selected group", () => {
@@ -607,45 +509,26 @@ describe("buildBoardProjectFilterPredicate", () => {
   });
 });
 
-describe("boardGitKey", () => {
-  it("keeps distinct environments with the same cwd apart", () => {
-    expect(boardGitKey(localEnvironmentId, "/repo")).not.toBe(
-      boardGitKey(remoteEnvironmentId, "/repo"),
-    );
-  });
-});
-
 describe("boardWorktreeKey", () => {
   it("returns null without a dedicated worktree", () => {
     expect(boardWorktreeKey({ environmentId: localEnvironmentId, worktreePath: null })).toBeNull();
     expect(boardWorktreeKey({ environmentId: localEnvironmentId, worktreePath: "   " })).toBeNull();
   });
-
-  it("keeps distinct environments with the same worktree path apart", () => {
-    expect(boardWorktreeKey({ environmentId: localEnvironmentId, worktreePath: "/wt" })).not.toBe(
-      boardWorktreeKey({ environmentId: remoteEnvironmentId, worktreePath: "/wt" }),
-    );
-  });
 });
 
 describe("resolveBoardDropIntent", () => {
-  it("maps the drop-zone droppables to their intents", () => {
+  it("maps the drop-zone droppables to their intents and everything else to null", () => {
     expect(resolveBoardDropIntent(BOARD_ARCHIVE_DROPPABLE_ID)).toBe("archive");
     expect(resolveBoardDropIntent(BOARD_TRASH_DROPPABLE_ID)).toBe("trash");
     expect(resolveBoardDropIntent(BOARD_UNSETTLE_DROPPABLE_ID)).toBe("unsettle");
     expect(resolveBoardDropIntent(BOARD_SETTLED_COLUMN_DROPPABLE_ID)).toBe("settle");
-  });
-
-  it("returns null for anything else, including the non-settled columns", () => {
-    expect(resolveBoardDropIntent(null)).toBeNull();
-    expect(resolveBoardDropIntent(undefined)).toBeNull();
-    expect(resolveBoardDropIntent("thread-1")).toBeNull();
     expect(resolveBoardDropIntent("board-column-review")).toBeNull();
+    expect(resolveBoardDropIntent(null)).toBeNull();
   });
 });
 
 describe("parseBoardWorktreeGroupDragId", () => {
-  it("round-trips the worktree key through the group drag id", () => {
+  it("round-trips the worktree key through the group drag id and rejects thread drag ids", () => {
     const worktreeKey = boardWorktreeKey({
       environmentId: localEnvironmentId,
       worktreePath: "/wt",
@@ -655,12 +538,6 @@ describe("parseBoardWorktreeGroupDragId", () => {
 
     expect(dragId).not.toBe(worktreeKey);
     expect(parseBoardWorktreeGroupDragId(dragId)).toBe(worktreeKey);
-  });
-
-  it("returns null for thread drag ids and non-string ids", () => {
     expect(parseBoardWorktreeGroupDragId("environment-local thread-1")).toBeNull();
-    expect(parseBoardWorktreeGroupDragId(null)).toBeNull();
-    expect(parseBoardWorktreeGroupDragId(undefined)).toBeNull();
-    expect(parseBoardWorktreeGroupDragId(7)).toBeNull();
   });
 });

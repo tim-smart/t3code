@@ -5,6 +5,20 @@ import { cn } from "../../lib/utils";
 import { ScrollArea } from "../ui/scroll-area";
 import { BOARD_COLUMN_LABELS, type BoardColumnId } from "./Board.logic";
 
+/** Small rounded count pill used by column headers and worktree groups. */
+export function BoardCountPill({ count, className }: { count: number; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-muted px-1 text-xs tabular-nums text-muted-foreground",
+        className,
+      )}
+    >
+      {count}
+    </span>
+  );
+}
+
 export function BoardColumn({
   columnId,
   count,
@@ -34,9 +48,7 @@ export function BoardColumn({
     >
       <header className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
         <span className="text-xs font-medium text-foreground">{BOARD_COLUMN_LABELS[columnId]}</span>
-        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-xs tabular-nums text-muted-foreground">
-          {count}
-        </span>
+        <BoardCountPill count={count} />
       </header>
       {/* Horizontal touch pans must chain to the board's scroll container;
           the viewport's default overscroll containment would swallow them. */}

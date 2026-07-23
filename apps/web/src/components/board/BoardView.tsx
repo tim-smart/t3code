@@ -20,8 +20,8 @@ import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
+  type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { ScopedThreadRef, VcsStatusResult } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
@@ -30,6 +30,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import { isElectron } from "../../env";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { cn } from "../../lib/utils";
@@ -46,8 +47,6 @@ import {
   useThreadShells,
 } from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
-import { useAtomCommand } from "../../state/use-atom-command";
-import { threadEnvironment } from "../../state/threads";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import type { Project, SidebarThreadSummary } from "../../types";
 import { useUiStateStore } from "../../uiStateStore";
@@ -56,8 +55,10 @@ import { ProjectFavicon, ProjectFaviconFallback } from "../ProjectFavicon";
 import {
   archiveSelectedThreadEntries,
   buildSidebarV2ThreadContextMenuItems,
+  isThreadSettledForDisplay,
   resolveThreadStatusPill,
 } from "../Sidebar.logic";
+import { resolveThreadPr } from "../ThreadStatusIndicators";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -82,7 +83,6 @@ import {
   deriveBoardColumn,
   parseBoardWorktreeGroupDragId,
   resolveBoardDropIntent,
-  resolveBoardThreadPr,
   type BoardColumnItem,
   type BoardDropIntent,
 } from "./Board.logic";
@@ -108,6 +108,21 @@ function countBoardColumnThreads<T>(items: readonly BoardColumnItem<T>[]): numbe
   return items.reduce(
     (count, item) => count + (item.kind === "thread" ? 1 : item.threads.length),
     0,
+  );
+}
+
+/** Error toast for a failed thread action; interruptions and successes are silent. */
+function reportThreadActionFailure(result: AtomCommandResult<unknown, unknown>, title: string) {
+  if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) {
+    return;
+  }
+  const error = squashAtomCommandFailure(result);
+  toastManager.add(
+    stackedThreadToast({
+      type: "error",
+      title,
+      description: error instanceof Error ? error.message : "An error occurred.",
+    }),
   );
 }
 
@@ -141,12 +156,10 @@ function BoardContent() {
     archiveThread,
     confirmAndDeleteThread,
     confirmAndDeleteThreads,
+    renameThread,
     settleThread,
     unsettleThread,
   } = useThreadActions();
-  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
-    reportFailure: false,
-  });
   const navigate = useNavigate();
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
@@ -160,10 +173,6 @@ function BoardContent() {
     }
 
     const handleWheel = (event: WheelEvent) => {
-      if (event.ctrlKey) {
-        return;
-      }
-
       const columnScrollViewport =
         event.target instanceof Element
           ? event.target.closest(
@@ -300,41 +309,47 @@ function BoardContent() {
     [gitStatuses, projectByKey, resolveThreadGitCwd],
   );
 
-  // now is quantized to the minute so effectiveSettled memoization doesn't
-  // churn on every render; auto-settle thresholds are day-granular anyway.
-  const [nowMinute, setNowMinute] = useState(() => new Date().toISOString().slice(0, 16));
-  useEffect(() => {
-    const id = window.setInterval(
-      () => setNowMinute(new Date().toISOString().slice(0, 16)),
-      60_000,
-    );
-    return () => window.clearInterval(id);
-  }, []);
+  const nowMinute = useNowMinute();
 
-  // Mirrors the sidebar's partition so board and sidebar always agree on what
-  // is settled. Threads on servers without the settlement capability never
-  // classify as settled: the user could neither un-settle nor pin them.
+  const previousSettledThreadKeys = useRef<ReadonlySet<string>>(new Set());
   const settledThreadKeys = useMemo(() => {
     const now = `${nowMinute}:00.000Z`;
     const keys = new Set<string>();
     for (const thread of filteredThreads) {
-      const supportsSettlement =
-        serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement === true;
-      if (!supportsSettlement) {
-        continue;
-      }
       const changeRequestState =
-        resolveBoardThreadPr({
+        resolveThreadPr({
           threadBranch: thread.branch,
           hasDedicatedWorktree: thread.worktreePath != null,
           gitStatus: getThreadGitContext(thread).gitStatus,
         })?.state ?? null;
-      if (effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })) {
+      if (
+        isThreadSettledForDisplay(thread, {
+          serverConfigs,
+          now,
+          autoSettleAfterDays,
+          changeRequestState,
+        })
+      ) {
         keys.add(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
       }
     }
+    // Column building and the drag handlers key on this set; keep the previous
+    // identity when the contents did not change so the minute tick and
+    // git-status churn don't cascade a full board re-render.
+    const previous = previousSettledThreadKeys.current;
+    if (previous.size === keys.size && [...keys].every((key) => previous.has(key))) {
+      return previous;
+    }
+    previousSettledThreadKeys.current = keys;
     return keys;
   }, [autoSettleAfterDays, filteredThreads, getThreadGitContext, nowMinute, serverConfigs]);
+  // The context-menu handler reads these through refs: depending on the live
+  // identities would hand every BoardCard a fresh callback prop on each
+  // git-status or shell event and defeat the cards' memoization.
+  const settledThreadKeysRef = useRef(settledThreadKeys);
+  settledThreadKeysRef.current = settledThreadKeys;
+  const serverConfigsRef = useRef(serverConfigs);
+  serverConfigsRef.current = serverConfigs;
 
   const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
   const threadStatusLabelByKey = useMemo(
@@ -498,84 +513,38 @@ function BoardContent() {
         return;
       }
 
-      if (intent === "settle") {
-        // Dropping onto the column a settled card already lives in is a no-op.
-        const refsToSettle = threadRefs.filter(
-          (threadRef) => !settledThreadKeys.has(scopedThreadKey(threadRef)),
+      if (intent === "settle" || intent === "unsettle") {
+        // Dropping onto a state a card is already in is a no-op: the restore
+        // zone only shows for settled drags, and a group can hold a mix.
+        const wantSettled = intent === "settle";
+        const refs = threadRefs.filter(
+          (threadRef) => settledThreadKeys.has(scopedThreadKey(threadRef)) !== wantSettled,
         );
-        if (refsToSettle.length === 0) {
+        if (refs.length === 0) {
           return;
         }
+        const action = wantSettled ? settleThread : unsettleThread;
+        const failureTitle = `Failed to ${wantSettled ? "settle" : "restore"} ${
+          refs.length === 1 ? "thread" : "threads"
+        }`;
         // Success is silent: the card moves when the shell update streams in.
-        void Promise.all(refsToSettle.map((threadRef) => settleThread(threadRef))).then(
-          (results) => {
-            const failure = results.find(
-              (result) => result._tag === "Failure" && !isAtomCommandInterrupted(result),
-            );
-            if (failure !== undefined && failure._tag === "Failure") {
-              const error = squashAtomCommandFailure(failure);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title:
-                    refsToSettle.length === 1
-                      ? "Failed to settle thread"
-                      : "Failed to settle threads",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                }),
-              );
-            }
-          },
-        );
-        return;
-      }
-
-      if (intent === "unsettle") {
-        // The restore zone only shows for settled drags; skip any group
-        // members that are already active.
-        const refsToRestore = threadRefs.filter((threadRef) =>
-          settledThreadKeys.has(scopedThreadKey(threadRef)),
-        );
-        if (refsToRestore.length === 0) {
-          return;
-        }
-        // Success is silent: the card moves when the shell update streams in.
-        void Promise.all(refsToRestore.map((threadRef) => unsettleThread(threadRef))).then(
-          (results) => {
-            const failure = results.find(
-              (result) => result._tag === "Failure" && !isAtomCommandInterrupted(result),
-            );
-            if (failure !== undefined && failure._tag === "Failure") {
-              const error = squashAtomCommandFailure(failure);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title:
-                    refsToRestore.length === 1
-                      ? "Failed to restore thread"
-                      : "Failed to restore threads",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                }),
-              );
-            }
-          },
-        );
+        void Promise.all(refs.map((threadRef) => action(threadRef))).then((results) => {
+          const failure = results.find(
+            (result) => result._tag === "Failure" && !isAtomCommandInterrupted(result),
+          );
+          if (failure) {
+            reportThreadActionFailure(failure, failureTitle);
+          }
+        });
         return;
       }
 
       if (intent === "trash") {
         void confirmAndDeleteThreads(threadRefs).then((result) => {
-          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title:
-                  threadRefs.length === 1 ? "Failed to delete thread" : "Failed to delete threads",
-                description: error instanceof Error ? error.message : "An error occurred.",
-              }),
-            );
-          }
+          reportThreadActionFailure(
+            result,
+            threadRefs.length === 1 ? "Failed to delete thread" : "Failed to delete threads",
+          );
         });
         return;
       }
@@ -588,27 +557,12 @@ function BoardContent() {
         archive: ({ threadRef }, onArchived) => archiveThread(threadRef, { onArchived }),
       }).then((outcome) => {
         for (const failure of outcome.followupFailures) {
-          if (isAtomCommandInterrupted(failure)) {
-            continue;
-          }
-          const error = squashAtomCommandFailure(failure);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Thread archived, but navigation failed",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
+          reportThreadActionFailure(failure, "Thread archived, but navigation failed");
         }
-        if (outcome.mutationFailure && !isAtomCommandInterrupted(outcome.mutationFailure)) {
-          const error = squashAtomCommandFailure(outcome.mutationFailure);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title:
-                threadRefs.length === 1 ? "Failed to archive thread" : "Failed to archive threads",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
+        if (outcome.mutationFailure) {
+          reportThreadActionFailure(
+            outcome.mutationFailure,
+            threadRefs.length === 1 ? "Failed to archive thread" : "Failed to archive threads",
           );
         }
       });
@@ -642,42 +596,15 @@ function BoardContent() {
     if (threadRenameTarget === null) {
       return;
     }
-
-    const trimmed = threadRenameTitle.trim();
-    if (trimmed.length === 0) {
-      toastManager.add({
-        type: "warning",
-        title: "Thread title cannot be empty",
-      });
-      return;
-    }
-    if (trimmed === threadRenameTarget.title) {
+    const committed = await renameThread(
+      scopeThreadRef(threadRenameTarget.environmentId, threadRenameTarget.id),
+      threadRenameTitle,
+      threadRenameTarget.title,
+    );
+    if (committed) {
       closeThreadRenameDialog();
-      return;
     }
-
-    const result = await updateThreadMetadata({
-      environmentId: threadRenameTarget.environmentId,
-      input: {
-        threadId: threadRenameTarget.id,
-        title: trimmed,
-      },
-    });
-    if (result._tag === "Success") {
-      closeThreadRenameDialog();
-      return;
-    }
-    if (!isAtomCommandInterrupted(result)) {
-      const error = squashAtomCommandFailure(result);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Failed to rename thread",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        }),
-      );
-    }
-  }, [closeThreadRenameDialog, threadRenameTarget, threadRenameTitle, updateThreadMetadata]);
+  }, [closeThreadRenameDialog, renameThread, threadRenameTarget, threadRenameTitle]);
 
   const handleThreadContextMenu = useCallback(
     async (thread: SidebarThreadSummary, position: { x: number; y: number }) => {
@@ -689,8 +616,9 @@ function BoardContent() {
       const threadRef = scopeThreadRef(thread.environmentId, thread.id);
       const threadKey = scopedThreadKey(threadRef);
       const supportsSettlement =
-        serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement === true;
-      const isSettled = settledThreadKeys.has(threadKey);
+        serverConfigsRef.current.get(thread.environmentId)?.environment.capabilities
+          .threadSettlement === true;
+      const isSettled = settledThreadKeysRef.current.has(threadKey);
       const clicked = await api.contextMenu.show(
         buildSidebarV2ThreadContextMenuItems({ supportsSettlement, isSettled }),
         position,
@@ -699,17 +627,10 @@ function BoardContent() {
       if (clicked === "settle" || clicked === "unsettle") {
         const result =
           clicked === "settle" ? await settleThread(threadRef) : await unsettleThread(threadRef);
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title:
-                clicked === "settle" ? "Failed to settle thread" : "Failed to un-settle thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
+        reportThreadActionFailure(
+          result,
+          clicked === "settle" ? "Failed to settle thread" : "Failed to un-settle thread",
+        );
         return;
       }
 
@@ -726,26 +647,9 @@ function BoardContent() {
         return;
       }
 
-      const result = await confirmAndDeleteThread(threadRef);
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to delete thread",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          }),
-        );
-      }
+      reportThreadActionFailure(await confirmAndDeleteThread(threadRef), "Failed to delete thread");
     },
-    [
-      confirmAndDeleteThread,
-      markThreadUnread,
-      serverConfigs,
-      settledThreadKeys,
-      settleThread,
-      unsettleThread,
-    ],
+    [confirmAndDeleteThread, markThreadUnread, settleThread, unsettleThread],
   );
 
   const showThreadContextMenu = useCallback(
@@ -900,7 +804,8 @@ function BoardContent() {
                     if (item.kind === "thread") {
                       return renderCard(item.thread);
                     }
-                    const [mostRecentThread, ...olderThreads] = item.threads;
+                    // buildBoardColumns only emits groups with >= 2 members.
+                    const mostRecentThread = item.threads[0]!;
                     return (
                       <BoardWorktreeGroup
                         key={item.worktreeKey}
@@ -908,13 +813,12 @@ function BoardContent() {
                         threadRefs={item.threads.map((thread) =>
                           scopeThreadRef(thread.environmentId, thread.id),
                         )}
-                        worktreePath={mostRecentThread?.worktreePath ?? ""}
-                        branch={mostRecentThread?.branch ?? null}
-                        threadCount={item.threads.length}
-                        mostRecentCard={mostRecentThread ? renderCard(mostRecentThread) : null}
+                        worktreePath={mostRecentThread.worktreePath ?? ""}
+                        branch={mostRecentThread.branch}
+                        mostRecentCard={renderCard(mostRecentThread)}
                         dragClickGuard={dragClickGuard}
                       >
-                        {olderThreads.map(renderCard)}
+                        {item.threads.slice(1).map(renderCard)}
                       </BoardWorktreeGroup>
                     );
                   })}
@@ -929,17 +833,15 @@ function BoardContent() {
         <DragOverlay dropAnimation={null}>
           {activeWorktreeGroup !== null ? (
             <BoardWorktreeGroupDragOverlay
-              worktreePath={activeWorktreeGroup.threads[0]?.worktreePath ?? ""}
-              branch={activeWorktreeGroup.threads[0]?.branch ?? null}
+              worktreePath={activeWorktreeGroup.threads[0]!.worktreePath ?? ""}
+              branch={activeWorktreeGroup.threads[0]!.branch}
               threadCount={activeWorktreeGroup.threads.length}
               dropIntent={dropIntent}
             />
           ) : activeThread !== null ? (
             <BoardCardDragOverlay
               thread={activeThread}
-              project={getThreadGitContext(activeThread).project}
-              gitStatus={getThreadGitContext(activeThread).gitStatus}
-              gitStatusPending={getThreadGitContext(activeThread).gitStatusPending}
+              {...getThreadGitContext(activeThread)}
               isSettled={settledThreadKeys.has(
                 scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id)),
               )}

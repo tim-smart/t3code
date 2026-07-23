@@ -5,7 +5,12 @@ import { useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { formatWorktreePathForDisplay } from "../../worktreeCleanup";
-import { boardWorktreeGroupDragId, type BoardDropIntent } from "./Board.logic";
+import {
+  BOARD_DROP_INTENT_OVERLAY_CLASSES,
+  boardWorktreeGroupDragId,
+  type BoardDropIntent,
+} from "./Board.logic";
+import { BoardCountPill } from "./BoardColumn";
 import type { BoardDragClickGuard } from "./BoardDragClickGuard";
 
 function resolveWorktreeGroupLabel(worktreePath: string, branch: string | null): string {
@@ -23,7 +28,6 @@ export function BoardWorktreeGroup({
   threadRefs,
   worktreePath,
   branch,
-  threadCount,
   mostRecentCard,
   dragClickGuard,
   children,
@@ -32,7 +36,6 @@ export function BoardWorktreeGroup({
   threadRefs: readonly ScopedThreadRef[];
   worktreePath: string;
   branch: string | null;
-  threadCount: number;
   mostRecentCard: ReactNode;
   dragClickGuard: BoardDragClickGuard;
   children: ReactNode;
@@ -77,9 +80,7 @@ export function BoardWorktreeGroup({
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground/70">
           {displayLabel}
         </span>
-        <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-muted px-1 text-xs tabular-nums text-muted-foreground">
-          {threadCount}
-        </span>
+        <BoardCountPill count={threadRefs.length} />
       </button>
       <div className="flex flex-col gap-2 px-2 pb-2">
         {mostRecentCard}
@@ -109,19 +110,14 @@ export function BoardWorktreeGroupDragOverlay({
       data-drop-intent={dropIntent ?? undefined}
       className={cn(
         "pointer-events-none flex w-68 items-center gap-1.5 rounded-lg border border-border/55 bg-muted px-2.5 py-2 shadow-lg transition-[opacity,scale,border-color] duration-150",
-        dropIntent === "archive" && "scale-90 border-amber-500 opacity-60",
-        dropIntent === "trash" && "scale-90 border-destructive opacity-60",
-        dropIntent === "settle" && "scale-90 border-primary opacity-60",
-        dropIntent === "unsettle" && "scale-90 border-emerald-500 opacity-60",
+        dropIntent && BOARD_DROP_INTENT_OVERLAY_CLASSES[dropIntent],
       )}
     >
       <FolderGit2Icon className="size-3 shrink-0 text-muted-foreground/40" />
       <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground/70">
         {displayLabel}
       </span>
-      <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-background/70 px-1 text-xs tabular-nums text-muted-foreground">
-        {threadCount}
-      </span>
+      <BoardCountPill count={threadCount} className="bg-background/70" />
     </div>
   );
 }

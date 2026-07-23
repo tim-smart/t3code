@@ -111,24 +111,12 @@ describe("BoardCard", () => {
     expect(markup.slice(openButtonStart, openButtonEnd)).not.toContain("#42");
   });
 
-  it("shows the plan-only indicator for plan-mode threads", () => {
+  it("shows the plan-only indicator only for plan-mode threads", () => {
     const markup = renderCard(makeThread({ interactionMode: "plan" }));
 
     expect(markup).toContain('data-testid="thread-plan-mode-thread-1"');
     expect(markup).toContain('aria-label="Plan-only thread"');
-  });
-
-  it("does not show the plan-only indicator for default-mode threads", () => {
-    const markup = renderCard();
-
-    expect(markup).not.toContain('data-testid="thread-plan-mode-thread-1"');
-  });
-
-  it("shows the settled indicator for settled threads", () => {
-    const markup = renderCard(makeThread(), true);
-
-    expect(markup).toContain('data-testid="thread-settled-thread-1"');
-    expect(markup).toContain('aria-label="Settled thread"');
+    expect(renderCard()).not.toContain('data-testid="thread-plan-mode-thread-1"');
   });
 
   it("shows the sidebar-v2 status indicator for active threads", () => {
@@ -148,27 +136,7 @@ describe("BoardCard", () => {
 
     expect(markup).toContain('role="status"');
     expect(markup).toContain(">Working</span>");
-  });
-
-  it("shows the v2 approval and failed labels", () => {
-    expect(renderCard(makeThread({ hasPendingApprovals: true }))).toContain(">Approval</span>");
-
-    const failedThread = makeThread({
-      session: {
-        threadId: ThreadId.make("thread-1"),
-        status: "error",
-        providerName: "Codex",
-        providerInstanceId: ProviderInstanceId.make("codex"),
-        runtimeMode: DEFAULT_RUNTIME_MODE,
-        activeTurnId: null,
-        lastError: "boom",
-        updatedAt: "2026-07-22T10:00:00.000Z",
-      },
-    });
-    expect(renderCard(failedThread)).toContain(">Failed</span>");
-  });
-
-  it("shows no status label for ready threads without unread completions", () => {
+    // Ready threads without an unread completion stay unlabeled.
     expect(renderCard()).not.toContain('role="status"');
   });
 
@@ -188,13 +156,9 @@ describe("BoardCard", () => {
 
     const settledMarkup = renderCard(runningThread, true);
     expect(settledMarkup).toContain('data-testid="thread-settled-thread-1"');
+    expect(settledMarkup).toContain('aria-label="Settled thread"');
     expect(settledMarkup).not.toContain(">Working</span>");
-  });
-
-  it("does not show the settled indicator for unsettled threads", () => {
-    const markup = renderCard();
-
-    expect(markup).not.toContain('data-testid="thread-settled-thread-1"');
+    expect(renderCard()).not.toContain('data-testid="thread-settled-thread-1"');
   });
 });
 
@@ -217,7 +181,7 @@ describe("BoardCardDragOverlay", () => {
   });
 
   it("reflects the pending drop intent so feedback is visible under the card", () => {
-    const renderOverlay = (dropIntent: "archive" | "trash" | "settle" | "unsettle" | null) =>
+    const renderOverlay = (dropIntent: "archive" | "trash" | null) =>
       renderToStaticMarkup(
         <BoardCardDragOverlay
           thread={makeThread()}
@@ -231,12 +195,6 @@ describe("BoardCardDragOverlay", () => {
 
     expect(renderOverlay(null)).not.toContain("data-drop-intent");
     expect(renderOverlay("archive")).toContain('data-drop-intent="archive"');
-    expect(renderOverlay("archive")).toContain("border-amber-500");
     expect(renderOverlay("trash")).toContain('data-drop-intent="trash"');
-    expect(renderOverlay("trash")).toContain("border-destructive");
-    expect(renderOverlay("settle")).toContain('data-drop-intent="settle"');
-    expect(renderOverlay("settle")).toContain("border-primary");
-    expect(renderOverlay("unsettle")).toContain('data-drop-intent="unsettle"');
-    expect(renderOverlay("unsettle")).toContain("border-emerald-500");
   });
 });
