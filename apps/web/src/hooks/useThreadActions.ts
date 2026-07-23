@@ -69,6 +69,17 @@ export class ThreadSettleBlockedError extends Schema.TaggedErrorClass<ThreadSett
   }
 }
 
+export function getWorktreeRemovalAction({
+  canRemoveWorktree,
+  confirmWorktreeRemoval,
+}: {
+  canRemoveWorktree: boolean;
+  confirmWorktreeRemoval: boolean;
+}): "skip" | "confirm" | "remove" {
+  if (!canRemoveWorktree) return "skip";
+  return confirmWorktreeRemoval ? "confirm" : "remove";
+}
+
 export function useThreadActions() {
   const closeTerminal = useAtomCommand(terminalEnvironment.close);
   const archiveThreadMutation = useAtomCommand(threadEnvironment.archive, {
@@ -95,6 +106,7 @@ export function useThreadActions() {
   });
   const sidebarThreadSortOrder = useClientSettings((settings) => settings.sidebarThreadSortOrder);
   const confirmThreadDelete = useClientSettings((settings) => settings.confirmThreadDelete);
+  const confirmWorktreeRemoval = useClientSettings((settings) => settings.confirmWorktreeRemoval);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const clearProjectDraftThreadById = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadById,
@@ -228,8 +240,12 @@ export function useThreadActions() {
         : null;
       const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== null;
       const localApi = readLocalApi();
-      let shouldDeleteWorktree = false;
-      if (canDeleteWorktree && localApi) {
+      const worktreeRemovalAction = getWorktreeRemovalAction({
+        canRemoveWorktree: canDeleteWorktree,
+        confirmWorktreeRemoval,
+      });
+      let shouldDeleteWorktree = worktreeRemovalAction === "remove";
+      if (worktreeRemovalAction === "confirm" && localApi) {
         const confirmationResult = await settlePromise(() =>
           localApi.dialogs.confirm(
             [
@@ -370,6 +386,7 @@ export function useThreadActions() {
       clearProjectDraftThreadById,
       clearTerminalUiState,
       closeTerminal,
+      confirmWorktreeRemoval,
       deleteThreadMutation,
       getCurrentRouteThreadRef,
       refreshVcsStatus,
