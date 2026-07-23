@@ -2,7 +2,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef, VcsStatusResult } from "@t3tools/contracts";
-import { memo, useMemo, type MouseEvent, type PointerEvent } from "react";
+import { memo, type MouseEvent, type PointerEvent } from "react";
 
 import { useOpenPrLink } from "../../lib/openPullRequestLink";
 import { cn } from "../../lib/utils";
@@ -20,6 +20,7 @@ import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import {
   ChangeRequestStatusIcon,
   prStatusIndicator,
+  resolveThreadPr,
   ThreadPlanModeIndicator,
   ThreadSettledIndicator,
   ThreadStatusV2Indicator,
@@ -29,8 +30,8 @@ import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectFavicon } from "../ProjectFavicon";
 import {
+  BOARD_DROP_INTENT_OVERLAY_CLASSES,
   resolveAppliedBoardGitStatus,
-  resolveBoardThreadPr,
   type BoardDropIntent,
 } from "./Board.logic";
 import type { BoardDragClickGuard } from "./BoardDragClickGuard";
@@ -86,7 +87,7 @@ function BoardCardBody({
     hasDedicatedWorktree: thread.worktreePath != null,
     gitStatus,
   });
-  const pr = resolveBoardThreadPr({
+  const pr = resolveThreadPr({
     threadBranch: thread.branch,
     hasDedicatedWorktree: thread.worktreePath != null,
     gitStatus,
@@ -148,7 +149,7 @@ function BoardCardBody({
       ) : null}
       <div className="flex min-h-4 items-center gap-2">
         {isSettled ? (
-          <ThreadSettledIndicator thread={thread} isSettled={isSettled} />
+          <ThreadSettledIndicator thread={thread} />
         ) : topStatus ? (
           <ThreadStatusV2Indicator status={topStatus} />
         ) : null}
@@ -225,10 +226,7 @@ export const BoardCard = memo(function BoardCard({
   onShowContextMenu,
   dragClickGuard,
 }: BoardCardProps) {
-  const threadRef = useMemo(
-    () => scopeThreadRef(thread.environmentId, thread.id),
-    [thread.environmentId, thread.id],
-  );
+  const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: scopedThreadKey(threadRef),
     data: { threadRef },
@@ -295,10 +293,7 @@ export function BoardCardDragOverlay({
       className={cn(
         BOARD_CARD_CLASS,
         "pointer-events-none w-68 shadow-lg transition-[opacity,scale,border-color] duration-150",
-        dropIntent === "archive" && "scale-90 border-amber-500 opacity-60",
-        dropIntent === "trash" && "scale-90 border-destructive opacity-60",
-        dropIntent === "settle" && "scale-90 border-primary opacity-60",
-        dropIntent === "unsettle" && "scale-90 border-emerald-500 opacity-60",
+        dropIntent && BOARD_DROP_INTENT_OVERLAY_CLASSES[dropIntent],
       )}
     >
       <BoardCardBody
