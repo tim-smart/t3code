@@ -311,10 +311,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Provided once at the runtime level so every consumer sees the same
   // logger instances.
   Layer.provideMerge(
-    Layer.mergeAll(
-      ProviderEventLoggers.ProviderEventLoggersLive,
-      DirenvEnvironment.layer.pipe(Layer.provide(ProcessRunner.layer)),
-    ),
+    Layer.mergeAll(ProviderEventLoggers.ProviderEventLoggersLive, DirenvEnvironment.layerLive),
   ),
   // `OpenCodeDriver.create()` yields `OpenCodeRuntime`; previously the old
   // `ProviderRegistryLive` pulled `OpenCodeRuntimeLive` in for itself, but
