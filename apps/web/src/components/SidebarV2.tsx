@@ -97,6 +97,7 @@ import {
   hasUnseenCompletion,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
+  buildSidebarV2ThreadContextMenuItems,
   resolveAdjacentThreadId,
   resolveSettledTimestamp,
   resolveSidebarV2Status,
@@ -1589,26 +1590,7 @@ export default function SidebarV2() {
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            [
-              ...(thread.branch
-                ? [
-                    {
-                      id: "new-thread-on-branch",
-                      label: `New thread on ${thread.branch}`,
-                    },
-                  ]
-                : []),
-              ...(supportsSettlement
-                ? [
-                    isSettled
-                      ? { id: "unsettle", label: "Un-settle thread" }
-                      : { id: "settle", label: "Settle thread" },
-                  ]
-                : []),
-              { id: "rename", label: "Rename thread" },
-              { id: "mark-unread", label: "Mark unread" },
-              { id: "delete", label: "Delete", destructive: true, icon: "trash" },
-            ],
+            buildSidebarV2ThreadContextMenuItems({ supportsSettlement, isSettled }),
             position,
           ),
         );

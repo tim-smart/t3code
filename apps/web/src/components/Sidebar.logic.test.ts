@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
+  buildSidebarV2ThreadContextMenuItems,
   buildThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
@@ -166,12 +167,50 @@ describe("buildMultiSelectThreadContextMenuItems", () => {
 });
 
 describe("buildThreadContextMenuItems", () => {
-  it("offers the thread actions shared by sidebar rows and board cards", () => {
+  it("offers the v1 sidebar thread actions", () => {
     expect(buildThreadContextMenuItems()).toEqual([
       { id: "rename", label: "Rename thread" },
       { id: "mark-unread", label: "Mark unread" },
       { id: "copy-path", label: "Copy Path" },
       { id: "copy-thread-id", label: "Copy Thread ID" },
+      { id: "delete", label: "Delete", destructive: true, icon: "trash" },
+    ]);
+  });
+});
+
+describe("buildSidebarV2ThreadContextMenuItems", () => {
+  it("offers settle for an active thread", () => {
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        supportsSettlement: true,
+        isSettled: false,
+      }),
+    ).toEqual([
+      { id: "settle", label: "Settle thread" },
+      { id: "rename", label: "Rename thread" },
+      { id: "mark-unread", label: "Mark unread" },
+      { id: "delete", label: "Delete", destructive: true, icon: "trash" },
+    ]);
+  });
+
+  it("offers un-settle for a settled thread", () => {
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        supportsSettlement: true,
+        isSettled: true,
+      })[0],
+    ).toEqual({ id: "unsettle", label: "Un-settle thread" });
+  });
+
+  it("hides settlement actions on unsupported servers", () => {
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        supportsSettlement: false,
+        isSettled: false,
+      }),
+    ).toEqual([
+      { id: "rename", label: "Rename thread" },
+      { id: "mark-unread", label: "Mark unread" },
       { id: "delete", label: "Delete", destructive: true, icon: "trash" },
     ]);
   });

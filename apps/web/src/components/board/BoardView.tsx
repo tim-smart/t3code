@@ -29,7 +29,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import { isElectron } from "../../env";
-import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
@@ -56,7 +55,7 @@ import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar"
 import { ProjectFavicon, ProjectFaviconFallback } from "../ProjectFavicon";
 import {
   archiveSelectedThreadEntries,
-  buildThreadContextMenuItems,
+  buildSidebarV2ThreadContextMenuItems,
   resolveThreadStatusPill,
 } from "../Sidebar.logic";
 import { Button } from "../ui/button";
@@ -153,44 +152,6 @@ function BoardContent() {
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
   const [threadRenameTarget, setThreadRenameTarget] = useState<SidebarThreadSummary | null>(null);
   const [threadRenameTitle, setThreadRenameTitle] = useState("");
-  const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{
-    threadId: string;
-  }>({
-    onCopy: (ctx) => {
-      toastManager.add({
-        type: "success",
-        title: "Thread ID copied",
-        description: ctx.threadId,
-      });
-    },
-    onError: (error) => {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Failed to copy thread ID",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        }),
-      );
-    },
-  });
-  const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
-    onCopy: (ctx) => {
-      toastManager.add({
-        type: "success",
-        title: "Path copied",
-        description: ctx.path,
-      });
-    },
-    onError: (error) => {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Failed to copy path",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        }),
-      );
-    },
-  });
 
   useEffect(() => {
     const scrollContainer = boardScrollRef.current;
@@ -725,9 +686,32 @@ function BoardContent() {
         return;
       }
 
-      const clicked = await api.contextMenu.show(buildThreadContextMenuItems(), position);
       const threadRef = scopeThreadRef(thread.environmentId, thread.id);
       const threadKey = scopedThreadKey(threadRef);
+      const supportsSettlement =
+        serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement === true;
+      const isSettled = settledThreadKeys.has(threadKey);
+      const clicked = await api.contextMenu.show(
+        buildSidebarV2ThreadContextMenuItems({ supportsSettlement, isSettled }),
+        position,
+      );
+
+      if (clicked === "settle" || clicked === "unsettle") {
+        const result =
+          clicked === "settle" ? await settleThread(threadRef) : await unsettleThread(threadRef);
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title:
+                clicked === "settle" ? "Failed to settle thread" : "Failed to un-settle thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+        return;
+      }
 
       if (clicked === "rename") {
         setThreadRenameTarget(thread);
@@ -736,28 +720,6 @@ function BoardContent() {
       }
       if (clicked === "mark-unread") {
         markThreadUnread(threadKey, thread.latestTurn?.completedAt);
-        return;
-      }
-      if (clicked === "copy-path") {
-        const project = projectByKey.get(
-          scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
-        );
-        const threadWorkspacePath = thread.worktreePath ?? project?.workspaceRoot ?? null;
-        if (threadWorkspacePath === null) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Path unavailable",
-              description: "This thread does not have a workspace path to copy.",
-            }),
-          );
-          return;
-        }
-        copyPathToClipboard(threadWorkspacePath, { path: threadWorkspacePath });
-        return;
-      }
-      if (clicked === "copy-thread-id") {
-        copyThreadIdToClipboard(thread.id, { threadId: thread.id });
         return;
       }
       if (clicked !== "delete") {
@@ -778,10 +740,11 @@ function BoardContent() {
     },
     [
       confirmAndDeleteThread,
-      copyPathToClipboard,
-      copyThreadIdToClipboard,
       markThreadUnread,
-      projectByKey,
+      serverConfigs,
+      settledThreadKeys,
+      settleThread,
+      unsettleThread,
     ],
   );
 
