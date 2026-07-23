@@ -74,10 +74,10 @@ export function BoardWorktreeGroup({
           )}
         />
         <FolderGit2Icon className="size-3 shrink-0 text-muted-foreground/40" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground/70">
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground/70">
           {displayLabel}
         </span>
-        <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-muted px-1 text-[10px] tabular-nums text-muted-foreground">
+        <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-muted px-1 text-xs tabular-nums text-muted-foreground">
           {threadCount}
         </span>
       </button>
@@ -108,7 +108,7 @@ export function BoardWorktreeGroupDragOverlay({
       aria-hidden="true"
       data-drop-intent={dropIntent ?? undefined}
       className={cn(
-        "pointer-events-none flex w-64 items-center gap-1.5 rounded-lg border border-border/55 bg-muted px-2.5 py-2 shadow-lg transition-[opacity,scale,border-color] duration-150",
+        "pointer-events-none flex w-68 items-center gap-1.5 rounded-lg border border-border/55 bg-muted px-2.5 py-2 shadow-lg transition-[opacity,scale,border-color] duration-150",
         dropIntent === "archive" && "scale-90 border-amber-500 opacity-60",
         dropIntent === "trash" && "scale-90 border-destructive opacity-60",
         dropIntent === "settle" && "scale-90 border-primary opacity-60",
@@ -116,10 +116,10 @@ export function BoardWorktreeGroupDragOverlay({
       )}
     >
       <FolderGit2Icon className="size-3 shrink-0 text-muted-foreground/40" />
-      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground/70">
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground/70">
         {displayLabel}
       </span>
-      <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-background/70 px-1 text-[10px] tabular-nums text-muted-foreground">
+      <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-background/70 px-1 text-xs tabular-nums text-muted-foreground">
         {threadCount}
       </span>
     </div>
