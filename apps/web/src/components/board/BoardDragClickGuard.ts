@@ -42,7 +42,6 @@ export function createBoardDragClickGuard(): BoardDragClickGuard {
     },
     dispose() {
       clearResetTimer();
-      suppressClick = false;
     },
   };
 }

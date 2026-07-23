@@ -1,4 +1,8 @@
 import * as React from "react";
+import {
+  effectiveSettled,
+  type ChangeRequestStateLike,
+} from "@t3tools/client-runtime/state/thread-settled";
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import {
@@ -262,15 +266,63 @@ export function useThreadJumpHintVisibility(): {
   };
 }
 
-export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  if (!thread.latestTurn?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestTurn.completedAt);
-  if (Number.isNaN(completedAt)) return false;
-  if (!thread.lastVisitedAt) return false;
+/**
+ * Whether `completedAt` is a completion the user has not seen yet: a missing
+ * last-visited timestamp counts as seen, an unparsable one as unseen.
+ */
+export function isCompletionUnseen(
+  completedAt: string | null | undefined,
+  lastVisitedAt: string | null | undefined,
+): boolean {
+  if (!completedAt) return false;
+  const completedAtMs = Date.parse(completedAt);
+  if (Number.isNaN(completedAtMs)) return false;
+  if (!lastVisitedAt) return false;
 
-  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
-  if (Number.isNaN(lastVisitedAt)) return true;
-  return completedAt > lastVisitedAt;
+  const lastVisitedAtMs = Date.parse(lastVisitedAt);
+  if (Number.isNaN(lastVisitedAtMs)) return true;
+  return completedAtMs > lastVisitedAtMs;
+}
+
+export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
+  return isCompletionUnseen(thread.latestTurn?.completedAt, thread.lastVisitedAt);
+}
+
+/**
+ * Shared settled classification for display surfaces (sidebar v2, board), so
+ * they always agree on what is settled. Threads on servers without the
+ * settlement capability (old server, or descriptor not loaded yet) never
+ * classify as settled: the user could neither un-settle nor pin them, so
+ * auto-settling them would strand rows in a tail with no working affordances.
+ */
+export function isThreadSettledForDisplay(
+  thread: Parameters<typeof effectiveSettled>[0] & { readonly environmentId: string },
+  input: {
+    serverConfigs: {
+      get(environmentId: string):
+        | {
+            readonly environment: {
+              readonly capabilities: { readonly threadSettlement?: boolean };
+            };
+          }
+        | undefined;
+    };
+    now: string;
+    autoSettleAfterDays: number | null;
+    changeRequestState: ChangeRequestStateLike | null;
+  },
+): boolean {
+  const supportsSettlement =
+    input.serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement ===
+    true;
+  return (
+    supportsSettlement &&
+    effectiveSettled(thread, {
+      now: input.now,
+      autoSettleAfterDays: input.autoSettleAfterDays,
+      changeRequestState: input.changeRequestState,
+    })
+  );
 }
 
 export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null): boolean {

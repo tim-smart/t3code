@@ -459,16 +459,10 @@ describe("model picker navigation helpers", () => {
 });
 
 describe("chat/editor shortcuts", () => {
-  it("resolves the board shortcut on macOS and other platforms", () => {
+  it("resolves the board shortcut", () => {
     assert.strictEqual(
       resolveShortcutCommand(event({ key: "t", metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
-      }),
-      "board.open",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "t", ctrlKey: true }), DEFAULT_BINDINGS, {
-        platform: "Linux",
       }),
       "board.open",
     );

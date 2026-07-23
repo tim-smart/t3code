@@ -182,10 +182,8 @@ export function ThreadWorktreeIndicator({
 
 export function ThreadPlanModeIndicator({
   thread,
-  className,
 }: {
   thread: Pick<SidebarThreadSummary, "id" | "interactionMode">;
-  className?: string;
 }) {
   if (thread.interactionMode !== "plan") {
     return null;
@@ -199,7 +197,7 @@ export function ThreadPlanModeIndicator({
             role="img"
             aria-label="Plan-only thread"
             data-testid={`thread-plan-mode-${thread.id}`}
-            className={cn("inline-flex items-center justify-center", className)}
+            className="inline-flex items-center justify-center"
           />
         }
       >
@@ -213,22 +211,10 @@ export function ThreadPlanModeIndicator({
 /**
  * Renders in the status pill slot with the same visual language as
  * `ThreadStatusLabel`. Settled-ness is context-dependent (auto-settle window,
- * PR state, server capability), so callers pass the resolved flag instead of
- * the indicator re-deriving it from the thread.
+ * PR state, server capability), so callers decide when to render this instead
+ * of the indicator re-deriving it from the thread.
  */
-export function ThreadSettledIndicator({
-  thread,
-  isSettled,
-  className,
-}: {
-  thread: Pick<SidebarThreadSummary, "id">;
-  isSettled: boolean;
-  className?: string;
-}) {
-  if (!isSettled) {
-    return null;
-  }
-
+export function ThreadSettledIndicator({ thread }: { thread: Pick<SidebarThreadSummary, "id"> }) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -236,10 +222,7 @@ export function ThreadSettledIndicator({
           <span
             aria-label="Settled thread"
             data-testid={`thread-settled-${thread.id}`}
-            className={cn(
-              "inline-flex items-center gap-1 text-xs font-medium text-muted-foreground/60",
-              className,
-            )}
+            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground/60"
           />
         }
       >
