@@ -2215,4 +2215,55 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.providerInstanceId).toBe(ProviderInstanceId.make("codex_work"));
     expect(thread?.session?.activeTurnId).toBeNull();
   });
+
+  effectIt.effect(
+    "stops the provider session when the stop is requested after the thread was archived",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+
+        yield* harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cmd-session-set-for-archive-stop"),
+          threadId: ThreadId.make("thread-1"),
+          session: {
+            threadId: ThreadId.make("thread-1"),
+            status: "running",
+            providerName: "codex",
+            providerInstanceId: ProviderInstanceId.make("codex_work"),
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        });
+
+        // Mirrors the archive flow: the archive commits first, so the
+        // reactor resolves the stop against an already-archived thread.
+        yield* harness.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("cmd-archive-before-stop"),
+          threadId: ThreadId.make("thread-1"),
+        });
+        yield* harness.engine.dispatch({
+          type: "thread.session.stop",
+          commandId: CommandId.make("cmd-session-stop-after-archive"),
+          threadId: ThreadId.make("thread-1"),
+          createdAt: now,
+        });
+
+        yield* Effect.promise(() => waitFor(() => harness.stopSession.mock.calls.length === 1));
+        expect(harness.stopSession.mock.calls[0]?.[0]).toMatchObject({
+          threadId: ThreadId.make("thread-1"),
+        });
+        yield* Effect.promise(() => harness.drain());
+        const readModel = yield* Effect.promise(() => harness.readModel());
+        const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+        expect(thread?.archivedAt).not.toBeNull();
+        expect(thread?.session?.status).toBe("stopped");
+        expect(thread?.session?.activeTurnId).toBeNull();
+      }),
+  );
 });
