@@ -110,10 +110,10 @@ function BoardCardBody({
         {project ? (
           <ProjectFavicon environmentId={thread.environmentId} cwd={project.workspaceRoot} />
         ) : null}
-        <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-muted-foreground/70">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground/70">
           {project?.title ?? ""}
         </span>
-        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/40">
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground/40">
           {relativeTimeLabel}
         </span>
       </div>
@@ -125,7 +125,7 @@ function BoardCardBody({
                 type="button"
                 aria-label={`Open thread: ${thread.title}`}
                 data-testid={`board-card-open-${thread.id}`}
-                className="line-clamp-2 w-full cursor-pointer text-left text-xs font-medium text-foreground focus-visible:outline-none"
+                className="line-clamp-2 w-full cursor-pointer text-left text-sm font-medium text-foreground focus-visible:outline-none"
                 onClick={rendering.onOpenThread}
                 {...rendering.draggableAttributes}
               />
@@ -136,11 +136,11 @@ function BoardCardBody({
           <TooltipPopup side="top">{thread.title}</TooltipPopup>
         </Tooltip>
       ) : (
-        <span className="line-clamp-2 text-xs font-medium text-foreground">{thread.title}</span>
+        <span className="line-clamp-2 text-sm font-medium text-foreground">{thread.title}</span>
       )}
       {thread.branch ? (
         <div className="flex min-w-0 items-center gap-1">
-          <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/60">
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground/60">
             {thread.branch}
           </span>
           <ThreadWorktreeIndicator thread={thread} />
@@ -148,9 +148,9 @@ function BoardCardBody({
       ) : null}
       <div className="flex min-h-4 items-center gap-2">
         {isSettled ? (
-          <ThreadSettledIndicator thread={thread} isSettled={isSettled} />
+          <ThreadSettledIndicator thread={thread} isSettled={isSettled} className="text-xs" />
         ) : topStatus ? (
-          <ThreadStatusV2Indicator status={topStatus} className="text-[10px]" />
+          <ThreadStatusV2Indicator status={topStatus} className="text-xs" />
         ) : null}
         {prStatus && pr ? (
           rendering.interactive ? (
@@ -159,7 +159,7 @@ function BoardCardBody({
               aria-label={prStatus.tooltip}
               title={prStatus.tooltip}
               className={cn(
-                "inline-flex cursor-pointer items-center gap-0.5 text-[10px] tabular-nums hover:underline",
+                "inline-flex cursor-pointer items-center gap-0.5 text-xs tabular-nums hover:underline",
                 prStatus.colorClass,
               )}
               onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
@@ -174,7 +174,7 @@ function BoardCardBody({
           ) : (
             <span
               className={cn(
-                "inline-flex items-center gap-0.5 text-[10px] tabular-nums",
+                "inline-flex items-center gap-0.5 text-xs tabular-nums",
                 prStatus.colorClass,
               )}
             >
@@ -183,12 +183,12 @@ function BoardCardBody({
           )
         ) : null}
         {dirtyFileCount > 0 ? (
-          <span className="text-[10px] tabular-nums text-muted-foreground/60">
+          <span className="text-xs tabular-nums text-muted-foreground/60">
             {dirtyFileCount} {dirtyFileCount === 1 ? "file" : "files"}
           </span>
         ) : null}
         {aheadCount > 0 ? (
-          <span className="text-[10px] tabular-nums text-muted-foreground/60">↑{aheadCount}</span>
+          <span className="text-xs tabular-nums text-muted-foreground/60">↑{aheadCount}</span>
         ) : null}
         {gitStatusPending ? (
           <Spinner className="size-3 text-muted-foreground/40" aria-label="Loading git status" />
@@ -294,7 +294,7 @@ export function BoardCardDragOverlay({
       data-drop-intent={dropIntent ?? undefined}
       className={cn(
         BOARD_CARD_CLASS,
-        "pointer-events-none w-64 shadow-lg transition-[opacity,scale,border-color] duration-150",
+        "pointer-events-none w-68 shadow-lg transition-[opacity,scale,border-color] duration-150",
         dropIntent === "archive" && "scale-90 border-amber-500 opacity-60",
         dropIntent === "trash" && "scale-90 border-destructive opacity-60",
         dropIntent === "settle" && "scale-90 border-primary opacity-60",
