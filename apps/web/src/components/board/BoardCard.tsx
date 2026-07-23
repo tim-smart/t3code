@@ -148,9 +148,9 @@ function BoardCardBody({
       ) : null}
       <div className="flex min-h-4 items-center gap-2">
         {isSettled ? (
-          <ThreadSettledIndicator thread={thread} isSettled={isSettled} className="text-xs" />
+          <ThreadSettledIndicator thread={thread} isSettled={isSettled} />
         ) : topStatus ? (
-          <ThreadStatusV2Indicator status={topStatus} className="text-xs" />
+          <ThreadStatusV2Indicator status={topStatus} />
         ) : null}
         {prStatus && pr ? (
           rendering.interactive ? (

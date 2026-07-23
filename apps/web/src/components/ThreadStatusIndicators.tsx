@@ -248,13 +248,13 @@ export function ThreadSettledIndicator({
             aria-label="Settled thread"
             data-testid={`thread-settled-${thread.id}`}
             className={cn(
-              "inline-flex items-center gap-1 text-[10px] text-muted-foreground/60",
+              "inline-flex items-center gap-1 text-xs font-medium text-muted-foreground/60",
               className,
             )}
           />
         }
       >
-        <CircleCheckIcon className="size-3" />
+        <CircleCheckIcon className="size-4 shrink-0" />
         <span className="hidden md:inline">Settled</span>
       </TooltipTrigger>
       <TooltipPopup side="top">Settled</TooltipPopup>
@@ -278,15 +278,15 @@ export function ThreadStatusV2Indicator({
     <span
       role="status"
       className={cn(
-        "inline-flex items-center gap-1 text-[11px] font-semibold",
+        "inline-flex items-center gap-1 text-xs font-medium",
         status.className,
         className,
       )}
     >
       {status.icon === "working" ? (
-        <CircleDashedIcon aria-hidden className="size-3" />
+        <CircleDashedIcon aria-hidden className="size-4 shrink-0" />
       ) : status.icon === "done" ? (
-        <CircleCheckIcon aria-hidden className="size-3" />
+        <CircleCheckIcon aria-hidden className="size-4 shrink-0" />
       ) : null}
       {status.label}
     </span>

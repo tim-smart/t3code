@@ -111,6 +111,31 @@ export function buildThreadContextMenuItems(): readonly ContextMenuItem<ThreadCo
   ];
 }
 
+export type SidebarV2ThreadContextMenuAction =
+  | "settle"
+  | "unsettle"
+  | "rename"
+  | "mark-unread"
+  | "delete";
+
+export function buildSidebarV2ThreadContextMenuItems(input: {
+  supportsSettlement: boolean;
+  isSettled: boolean;
+}): readonly ContextMenuItem<SidebarV2ThreadContextMenuAction>[] {
+  return [
+    ...(input.supportsSettlement
+      ? [
+          input.isSettled
+            ? ({ id: "unsettle", label: "Un-settle thread" } as const)
+            : ({ id: "settle", label: "Settle thread" } as const),
+        ]
+      : []),
+    { id: "rename", label: "Rename thread" },
+    { id: "mark-unread", label: "Mark unread" },
+    { id: "delete", label: "Delete", destructive: true, icon: "trash" },
+  ];
+}
+
 export interface ThreadStatusPill {
   label:
     | "Working"
