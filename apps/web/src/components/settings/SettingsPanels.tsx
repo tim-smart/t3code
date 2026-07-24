@@ -1005,7 +1005,7 @@ export function GeneralSettingsPanel() {
 
         <SettingsRow
           title="Worktree remove confirmation"
-          description="Ask before removing a worktree when its last linked thread is deleted."
+          description="Ask before removing a worktree when its last linked thread is archived or deleted."
           resetAction={
             settings.confirmWorktreeRemoval !== DEFAULT_UNIFIED_SETTINGS.confirmWorktreeRemoval ? (
               <SettingResetButton
