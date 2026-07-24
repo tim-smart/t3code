@@ -156,9 +156,7 @@ export function useNewThreadHandler() {
                 ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
                 ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
                 ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
-                ...(hasReuseBaseBranchOption
-                  ? { reuseBaseBranch: options?.reuseBaseBranch }
-                  : {}),
+                ...(hasReuseBaseBranchOption ? { reuseBaseBranch: options?.reuseBaseBranch } : {}),
               }
             : isDraftAlreadyOpen
               ? null
