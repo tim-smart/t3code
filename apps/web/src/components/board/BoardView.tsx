@@ -54,6 +54,8 @@ import { useUiStateStore } from "../../uiStateStore";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
 import { ProjectFavicon, ProjectFaviconFallback } from "../ProjectFavicon";
 import {
+  SETTLED_TAIL_INITIAL_COUNT,
+  SETTLED_TAIL_PAGE_COUNT,
   archiveSelectedThreadEntries,
   buildSidebarV2ThreadContextMenuItems,
   isThreadSettledForDisplay,
@@ -81,10 +83,11 @@ import {
   boardWorktreeKey,
   buildBoardColumns,
   buildBoardProjectFilterPredicate,
+  countBoardColumnThreads,
   deriveBoardColumn,
   parseBoardWorktreeGroupDragId,
   resolveBoardDropIntent,
-  type BoardColumnItem,
+  sliceBoardSettledItems,
   type BoardDropIntent,
 } from "./Board.logic";
 import { BoardCard, BoardCardDragOverlay } from "./BoardCard";
@@ -103,13 +106,6 @@ interface BoardThreadGitContext {
   readonly project: Project | null;
   readonly gitStatus: VcsStatusResult | null;
   readonly gitStatusPending: boolean;
-}
-
-function countBoardColumnThreads<T>(items: readonly BoardColumnItem<T>[]): number {
-  return items.reduce(
-    (count, item) => count + (item.kind === "thread" ? 1 : item.threads.length),
-    0,
-  );
 }
 
 /** Error toast for a failed thread action; interruptions and successes are silent. */
@@ -427,6 +423,24 @@ function BoardContent() {
       threadStatusLabelByKey,
       workingWorktreeKeys,
     ],
+  );
+
+  // Settled tail renders in pages, mirroring SidebarV2: expansion resets when
+  // the project filter changes so a scope flip never inherits a deep page.
+  const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
+  const settledResetKey = storedProjectFilter ?? "all";
+  const lastSettledResetKeyRef = useRef(settledResetKey);
+  if (lastSettledResetKeyRef.current !== settledResetKey) {
+    lastSettledResetKeyRef.current = settledResetKey;
+    setSettledVisibleCount(SETTLED_TAIL_INITIAL_COUNT);
+  }
+  const settledTail = useMemo(
+    () => sliceBoardSettledItems(columns.settled, settledVisibleCount),
+    [columns, settledVisibleCount],
+  );
+  const showMoreSettled = useCallback(
+    () => setSettledVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT),
+    [],
   );
 
   const dragClickGuard = useMemo(() => createBoardDragClickGuard(), []);
@@ -792,55 +806,71 @@ function BoardContent() {
               data-testid="board-column-row"
               className="flex h-full w-full min-w-max justify-center gap-3 p-3 sm:p-4"
             >
-              {BOARD_COLUMN_IDS.map((columnId) => (
-                <BoardColumn
-                  key={columnId}
-                  columnId={columnId}
-                  count={countBoardColumnThreads(columns[columnId])}
-                >
-                  {columns[columnId].map((item) => {
-                    const renderCard = (thread: SidebarThreadSummary) => {
-                      const gitContext = getThreadGitContext(thread);
-                      const threadKey = scopedThreadKey(
-                        scopeThreadRef(thread.environmentId, thread.id),
-                      );
-                      return (
-                        <BoardCard
-                          key={threadKey}
-                          thread={thread}
-                          project={gitContext.project}
-                          gitStatus={gitContext.gitStatus}
-                          gitStatusPending={gitContext.gitStatusPending}
-                          isSettled={settledThreadKeys.has(threadKey)}
-                          onOpenThread={handleOpenThread}
-                          onShowContextMenu={showThreadContextMenu}
-                          dragClickGuard={dragClickGuard}
-                        />
-                      );
-                    };
-                    if (item.kind === "thread") {
-                      return renderCard(item.thread);
-                    }
-                    // buildBoardColumns only emits groups with >= 2 members.
-                    const mostRecentThread = item.threads[0]!;
-                    return (
-                      <BoardWorktreeGroup
-                        key={item.worktreeKey}
-                        worktreeKey={item.worktreeKey}
-                        threadRefs={item.threads.map((thread) =>
+              {BOARD_COLUMN_IDS.map((columnId) => {
+                const items = columnId === "settled" ? settledTail.visibleItems : columns[columnId];
+                return (
+                  <BoardColumn
+                    key={columnId}
+                    columnId={columnId}
+                    count={countBoardColumnThreads(columns[columnId])}
+                  >
+                    {items.map((item) => {
+                      const renderCard = (thread: SidebarThreadSummary) => {
+                        const gitContext = getThreadGitContext(thread);
+                        const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
-                        )}
-                        worktreePath={mostRecentThread.worktreePath ?? ""}
-                        branch={mostRecentThread.branch}
-                        mostRecentCard={renderCard(mostRecentThread)}
-                        dragClickGuard={dragClickGuard}
+                        );
+                        return (
+                          <BoardCard
+                            key={threadKey}
+                            thread={thread}
+                            project={gitContext.project}
+                            gitStatus={gitContext.gitStatus}
+                            gitStatusPending={gitContext.gitStatusPending}
+                            isSettled={settledThreadKeys.has(threadKey)}
+                            onOpenThread={handleOpenThread}
+                            onShowContextMenu={showThreadContextMenu}
+                            dragClickGuard={dragClickGuard}
+                          />
+                        );
+                      };
+                      if (item.kind === "thread") {
+                        return renderCard(item.thread);
+                      }
+                      // buildBoardColumns only emits groups with >= 2 members.
+                      const mostRecentThread = item.threads[0]!;
+                      return (
+                        <BoardWorktreeGroup
+                          key={item.worktreeKey}
+                          worktreeKey={item.worktreeKey}
+                          threadRefs={item.threads.map((thread) =>
+                            scopeThreadRef(thread.environmentId, thread.id),
+                          )}
+                          worktreePath={mostRecentThread.worktreePath ?? ""}
+                          branch={mostRecentThread.branch}
+                          mostRecentCard={renderCard(mostRecentThread)}
+                          dragClickGuard={dragClickGuard}
+                        >
+                          {item.threads.slice(1).map(renderCard)}
+                        </BoardWorktreeGroup>
+                      );
+                    })}
+                    {columnId === "settled" && settledTail.hiddenThreadCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={showMoreSettled}
+                        data-testid="board-settled-show-more"
+                        className="mt-1 flex h-[30px] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border font-mono text-[11px] text-muted-foreground transition-colors hover:border-solid hover:border-input hover:bg-background/45 hover:text-foreground dark:border-white/15 dark:hover:border-white/30 dark:hover:bg-transparent"
                       >
-                        {item.threads.slice(1).map(renderCard)}
-                      </BoardWorktreeGroup>
-                    );
-                  })}
-                </BoardColumn>
-              ))}
+                        Show {Math.min(settledTail.hiddenThreadCount, SETTLED_TAIL_PAGE_COUNT)} more
+                        <span className="text-muted-foreground/50">
+                          ({settledTail.hiddenThreadCount} settled hidden)
+                        </span>
+                      </button>
+                    ) : null}
+                  </BoardColumn>
+                );
+              })}
             </div>
           </div>
           {activeDragId !== null ? (

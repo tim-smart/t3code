@@ -10,9 +10,11 @@ import {
   boardWorktreeKey,
   buildBoardColumns,
   buildBoardProjectFilterPredicate,
+  countBoardColumnThreads,
   deriveBoardColumn,
   parseBoardWorktreeGroupDragId,
   resolveBoardDropIntent,
+  sliceBoardSettledItems,
   sortBoardThreads,
   type BoardColumnItem,
   type BoardColumnInput,
@@ -468,6 +470,68 @@ describe("buildBoardColumns", () => {
       },
     ]);
     expect(columns.settled).toEqual([]);
+  });
+});
+
+describe("countBoardColumnThreads", () => {
+  it("counts a worktree group as its member count", () => {
+    const items: BoardColumnItem<{ readonly id: string }>[] = [
+      { kind: "thread", thread: { id: "thread-1" } },
+      {
+        kind: "worktreeGroup",
+        worktreeKey: "shared-worktree",
+        threads: [{ id: "thread-2" }, { id: "thread-3" }],
+      },
+    ];
+    expect(countBoardColumnThreads(items)).toBe(3);
+    expect(countBoardColumnThreads([])).toBe(0);
+  });
+});
+
+describe("sliceBoardSettledItems", () => {
+  const thread = (id: string): BoardColumnItem<{ readonly id: string }> => ({
+    kind: "thread",
+    thread: { id },
+  });
+  const group = (
+    worktreeKey: string,
+    ...ids: string[]
+  ): BoardColumnItem<{ readonly id: string }> => ({
+    kind: "worktreeGroup",
+    worktreeKey,
+    threads: ids.map((id) => ({ id })),
+  });
+
+  it("returns the same array with no hidden count when the total fits the limit", () => {
+    const items = [thread("thread-1"), group("shared-worktree", "thread-2", "thread-3")];
+    const result = sliceBoardSettledItems(items, 3);
+    expect(result.visibleItems).toBe(items);
+    expect(result.hiddenThreadCount).toBe(0);
+  });
+
+  it("slices plain thread items at the limit", () => {
+    const items = [thread("thread-1"), thread("thread-2"), thread("thread-3")];
+    const result = sliceBoardSettledItems(items, 2);
+    expect(columnThreadIds(result.visibleItems)).toEqual(["thread-1", "thread-2"]);
+    expect(result.hiddenThreadCount).toBe(1);
+  });
+
+  it("includes a group straddling the limit whole and counts its members", () => {
+    const items = [
+      thread("thread-1"),
+      group("shared-worktree", "thread-2", "thread-3", "thread-4"),
+      thread("thread-5"),
+    ];
+    const result = sliceBoardSettledItems(items, 2);
+    expect(result.visibleItems).toEqual([items[0], items[1]]);
+    expect(result.hiddenThreadCount).toBe(1);
+  });
+
+  it("returns no visible items for a zero limit with non-empty input", () => {
+    const items = [thread("thread-1"), thread("thread-2")];
+    const result = sliceBoardSettledItems(items, 0);
+    expect(result.visibleItems).toEqual([]);
+    expect(result.hiddenThreadCount).toBe(2);
   });
 });
 
