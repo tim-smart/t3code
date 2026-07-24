@@ -22,6 +22,10 @@ export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
 // Visible sidebar rows are prewarmed into the thread-detail cache so opening a
 // nearby thread usually reuses an already-hot subscription.
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
+// Settled-tail paging: recent history is the common lookup; the deep tail
+// stays behind an explicit Show more. Shared by SidebarV2 and the board.
+export const SETTLED_TAIL_INITIAL_COUNT = 10;
+export const SETTLED_TAIL_PAGE_COUNT = 25;
 type SidebarProject = {
   id: string;
   title: string;

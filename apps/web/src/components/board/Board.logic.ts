@@ -301,6 +301,38 @@ export function buildBoardColumns<T extends BoardSortableThread>(
   return columns;
 }
 
+/** Total threads across column items; a worktree group counts each member. */
+export function countBoardColumnThreads<T>(items: readonly BoardColumnItem<T>[]): number {
+  return items.reduce(
+    (count, item) => count + (item.kind === "thread" ? 1 : item.threads.length),
+    0,
+  );
+}
+
+/**
+ * Settled-tail slice for the board column. The limit counts threads (a
+ * worktree group counts as its member count) so paging matches the sidebar's
+ * thread-based tail; a group straddling the limit is included whole since a
+ * group card cannot render partially.
+ */
+export function sliceBoardSettledItems<T>(
+  items: readonly BoardColumnItem<T>[],
+  limit: number,
+): { visibleItems: readonly BoardColumnItem<T>[]; hiddenThreadCount: number } {
+  const total = countBoardColumnThreads(items);
+  if (total <= limit) {
+    return { visibleItems: items, hiddenThreadCount: 0 };
+  }
+  const visibleItems: BoardColumnItem<T>[] = [];
+  let shown = 0;
+  for (const item of items) {
+    if (shown >= limit) break;
+    visibleItems.push(item);
+    shown += item.kind === "thread" ? 1 : item.threads.length;
+  }
+  return { visibleItems, hiddenThreadCount: total - shown };
+}
+
 export interface BoardWorktreeThread {
   readonly environmentId: EnvironmentId;
   readonly worktreePath: string | null;
