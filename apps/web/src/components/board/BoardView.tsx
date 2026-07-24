@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import { isElectron } from "../../env";
+import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useClientSettings } from "../../hooks/useSettings";
@@ -160,6 +161,7 @@ function BoardContent() {
     settleThread,
     unsettleThread,
   } = useThreadActions();
+  const handleNewThread = useNewThreadHandler();
   const navigate = useNavigate();
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
@@ -620,10 +622,25 @@ function BoardContent() {
           .threadSettlement === true;
       const isSettled = settledThreadKeysRef.current.has(threadKey);
       const clicked = await api.contextMenu.show(
-        buildSidebarV2ThreadContextMenuItems({ supportsSettlement, isSettled }),
+        buildSidebarV2ThreadContextMenuItems({
+          branch: thread.branch,
+          supportsSettlement,
+          isSettled,
+        }),
         position,
       );
 
+      if (clicked === "new-thread-on-branch") {
+        // Explicit branch carry-over: reuse the thread's worktree when it
+        // has one, otherwise its branch on the local checkout.
+        await handleNewThread(scopeProjectRef(thread.environmentId, thread.projectId), {
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          envMode: thread.worktreePath ? "worktree" : "local",
+          startFromOrigin: false,
+        });
+        return;
+      }
       if (clicked === "settle" || clicked === "unsettle") {
         const result =
           clicked === "settle" ? await settleThread(threadRef) : await unsettleThread(threadRef);
@@ -649,7 +666,7 @@ function BoardContent() {
 
       reportThreadActionFailure(await confirmAndDeleteThread(threadRef), "Failed to delete thread");
     },
-    [confirmAndDeleteThread, markThreadUnread, settleThread, unsettleThread],
+    [confirmAndDeleteThread, handleNewThread, markThreadUnread, settleThread, unsettleThread],
   );
 
   const showThreadContextMenu = useCallback(
