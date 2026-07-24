@@ -39,11 +39,6 @@ jobs:
       - name: Add upstream remote
         run: git remote add upstream https://github.com/pingdotgg/t3code.git
 
-      - name: Validate fixed PR stack
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/rebase-pr-stack.ts check
-
       - name: Rebase and atomically update stack
         env:
           GH_TOKEN: ${{ github.token }}

@@ -27,6 +27,7 @@ interface Fixture {
 interface FixtureOptions {
   readonly conflict?: boolean;
   readonly extraCommitOnPr5?: boolean;
+  readonly updatePr5AfterDescendant?: boolean;
   readonly landedPr4Upstream?: boolean;
   readonly divergedMain?: boolean;
 }
@@ -150,6 +151,12 @@ function createFixture(options: FixtureOptions = {}): Fixture {
   commitFile(work, "automation.txt", "automation\n", "stack automation");
   runGit(work, ["push", "--quiet", "origin", "fork/integration"]);
 
+  if (options.updatePr5AfterDescendant) {
+    runGit(work, ["checkout", "--quiet", "feature/pr-5"]);
+    commitFile(work, "pr-5-late.txt", "updated after pr 6\n", "late pr 5 update");
+    runGit(work, ["push", "--quiet", "origin", "feature/pr-5"]);
+  }
+
   if (options.landedPr4Upstream) {
     runGit(work, ["checkout", "--quiet", "main"]);
     runGit(work, ["cherry-pick", "--quiet", pr4Tip]);
@@ -236,6 +243,26 @@ describe("rebase-pr-stack", () => {
     assert.deepStrictEqual(
       runGit(fixture.origin, ["log", "--reverse", "--format=%s", `${pr4}..${pr5}`]).split("\n"),
       ["pr 5", "new pr 5 commit"],
+    );
+  });
+
+  it("restacks descendants after an earlier PR is updated", async () => {
+    const fixture = createFixture({ updatePr5AfterDescendant: true });
+    const oldPr6 = remoteTip(fixture.origin, "feature/pr-6");
+    assert.ok(!isAncestor(fixture.origin, remoteTip(fixture.origin, "feature/pr-5"), oldPr6));
+
+    await syncStack({
+      sourceRoot: fixture.work,
+      push: true,
+      validatePullRequests: false,
+    });
+
+    const pr5 = remoteTip(fixture.origin, "feature/pr-5");
+    const pr6 = remoteTip(fixture.origin, "feature/pr-6");
+    assert.ok(isAncestor(fixture.origin, pr5, pr6));
+    assert.deepStrictEqual(
+      runGit(fixture.origin, ["log", "--reverse", "--format=%s", `${pr5}..${pr6}`]).split("\n"),
+      ["pr 6"],
     );
   });
 
