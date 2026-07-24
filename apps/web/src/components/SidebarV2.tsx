@@ -1557,9 +1557,9 @@ export default function SidebarV2() {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildSidebarV2ThreadContextMenuItems({
+              branch: thread.branch,
               supportsSettlement,
               isSettled,
-              branch: thread.branch,
             }),
             position,
           ),

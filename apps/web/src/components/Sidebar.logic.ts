@@ -130,13 +130,19 @@ export type SidebarV2ThreadContextMenuAction =
   | "delete";
 
 export function buildSidebarV2ThreadContextMenuItems(input: {
+  branch: string | null;
   supportsSettlement: boolean;
   isSettled: boolean;
   branch?: string | null;
 }): readonly ContextMenuItem<SidebarV2ThreadContextMenuAction>[] {
   return [
     ...(input.branch
-      ? ([{ id: "new-thread-on-branch", label: `New thread on ${input.branch}` }] as const)
+      ? [
+          {
+            id: "new-thread-on-branch",
+            label: `New thread on ${input.branch}`,
+          } as const,
+        ]
       : []),
     ...(input.supportsSettlement
       ? [

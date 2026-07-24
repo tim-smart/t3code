@@ -169,18 +169,21 @@ describe("buildSidebarV2ThreadContextMenuItems", () => {
   it("offers settlement actions matching the thread's state and server support", () => {
     expect(
       buildSidebarV2ThreadContextMenuItems({
+        branch: null,
         supportsSettlement: true,
         isSettled: false,
       })[0],
     ).toEqual({ id: "settle", label: "Settle thread" });
     expect(
       buildSidebarV2ThreadContextMenuItems({
+        branch: null,
         supportsSettlement: true,
         isSettled: true,
       })[0],
     ).toEqual({ id: "unsettle", label: "Un-settle thread" });
     expect(
       buildSidebarV2ThreadContextMenuItems({
+        branch: null,
         supportsSettlement: false,
         isSettled: false,
       }),
@@ -189,6 +192,16 @@ describe("buildSidebarV2ThreadContextMenuItems", () => {
       { id: "mark-unread", label: "Mark unread" },
       { id: "delete", label: "Delete", destructive: true, icon: "trash" },
     ]);
+  });
+
+  it("leads with a new-thread item for the thread's branch", () => {
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        branch: "feature/login",
+        supportsSettlement: true,
+        isSettled: false,
+      })[0],
+    ).toEqual({ id: "new-thread-on-branch", label: "New thread on feature/login" });
   });
 });
 
