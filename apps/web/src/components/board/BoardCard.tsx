@@ -17,6 +17,7 @@ import {
   resolveSidebarV2TopStatus,
 } from "../Sidebar.logic";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { getTriggerDisplayModelLabel } from "../chat/providerIconUtils";
 import {
   ChangeRequestStatusIcon,
   prStatusIndicator,
@@ -80,7 +81,14 @@ function BoardCardBody({
   const openPrLink = useOpenPrLink();
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
   const modelInstanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
-  const driverKind = getProviderInstanceEntry(serverProviders, modelInstanceId)?.driverKind ?? null;
+  const providerEntry = getProviderInstanceEntry(serverProviders, modelInstanceId) ?? null;
+  const driverKind = providerEntry?.driverKind ?? null;
+  const selectedModel = providerEntry?.models.find(
+    (model) => model.slug === thread.modelSelection.model,
+  );
+  const modelLabel = selectedModel
+    ? getTriggerDisplayModelLabel(selectedModel)
+    : thread.modelSelection.model;
 
   const appliedGitStatus = resolveAppliedBoardGitStatus({
     threadBranch: thread.branch,
@@ -207,7 +215,7 @@ function BoardCardBody({
                   iconClassName="size-3"
                 />
               </TooltipTrigger>
-              <TooltipPopup side="top">{thread.modelSelection.model}</TooltipPopup>
+              <TooltipPopup side="top">{modelLabel}</TooltipPopup>
             </Tooltip>
           ) : null}
         </span>
