@@ -116,6 +116,7 @@ export function buildThreadContextMenuItems(): readonly ContextMenuItem<ThreadCo
 }
 
 export type SidebarV2ThreadContextMenuAction =
+  | "new-thread-on-branch"
   | "settle"
   | "unsettle"
   | "rename"
@@ -123,10 +124,19 @@ export type SidebarV2ThreadContextMenuAction =
   | "delete";
 
 export function buildSidebarV2ThreadContextMenuItems(input: {
+  branch: string | null;
   supportsSettlement: boolean;
   isSettled: boolean;
 }): readonly ContextMenuItem<SidebarV2ThreadContextMenuAction>[] {
   return [
+    ...(input.branch
+      ? [
+          {
+            id: "new-thread-on-branch",
+            label: `New thread on ${input.branch}`,
+          } as const,
+        ]
+      : []),
     ...(input.supportsSettlement
       ? [
           input.isSettled
