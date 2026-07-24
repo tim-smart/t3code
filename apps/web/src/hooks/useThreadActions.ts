@@ -210,6 +210,7 @@ export function useThreadActions() {
           });
           return previewResult._tag === "Success" ? previewResult.value.candidate : null;
         },
+        removalPolicy: confirmWorktreeRemoval ? "confirm" : "remove",
         confirmRemoval: localApi
           ? async ({ displayWorktreePath }) => {
               const confirmationResult = await settlePromise(() =>
@@ -295,6 +296,7 @@ export function useThreadActions() {
     [
       archiveThreadMutation,
       cleanupThreadWorktree,
+      confirmWorktreeRemoval,
       getCurrentRouteThreadRef,
       previewWorktreeCleanup,
       resolveThreadTarget,
