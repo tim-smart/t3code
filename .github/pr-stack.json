@@ -54,6 +54,10 @@
     {
       "number": 16,
       "branch": "t3code/worktree-remove-confirmation"
+    },
+    {
+      "number": 17,
+      "branch": "t3code/diagnose-missing-thread-subscriptions"
     }
   ]
 }
