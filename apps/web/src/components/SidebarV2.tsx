@@ -108,10 +108,7 @@ import {
   sortThreadsForSidebarV2,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
-import {
-  prStatusIndicator,
-  resolveThreadPr,
-} from "./ThreadStatusIndicators";
+import { prStatusIndicator, resolveThreadPr } from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
@@ -1590,7 +1587,11 @@ export default function SidebarV2() {
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            buildSidebarV2ThreadContextMenuItems({ supportsSettlement, isSettled }),
+            buildSidebarV2ThreadContextMenuItems({
+              branch: thread.branch,
+              supportsSettlement,
+              isSettled,
+            }),
             position,
           ),
         );
