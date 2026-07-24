@@ -1,0 +1,59 @@
+{
+  "upstreamRemote": "upstream",
+  "upstreamBranch": "main",
+  "integrationBranch": "fork/integration",
+  "pullRequests": [
+    {
+      "number": 4,
+      "branch": "t3code/open-with-applications"
+    },
+    {
+      "number": 5,
+      "branch": "t3code/add-direnv-shell-support"
+    },
+    {
+      "number": 6,
+      "branch": "t3code/git-signing-toggle"
+    },
+    {
+      "number": 7,
+      "branch": "t3code/add-new-session-command"
+    },
+    {
+      "number": 8,
+      "branch": "t3code/session-dashboard-board"
+    },
+    {
+      "number": 9,
+      "branch": "t3code/investigate-thread-resume"
+    },
+    {
+      "number": 10,
+      "branch": "t3code/diagnose-thread-polling-404"
+    },
+    {
+      "number": 11,
+      "branch": "t3code/mobile-file-upload-button"
+    },
+    {
+      "number": 12,
+      "branch": "t3code/truncate-mobile-footer"
+    },
+    {
+      "number": 13,
+      "branch": "t3code/cleanup-archived-worktrees"
+    },
+    {
+      "number": 14,
+      "branch": "t3code/fix-primary-environment-request"
+    },
+    {
+      "number": 15,
+      "branch": "t3code/reuse-selected-worktree-branch"
+    },
+    {
+      "number": 16,
+      "branch": "t3code/worktree-remove-confirmation"
+    }
+  ]
+}
