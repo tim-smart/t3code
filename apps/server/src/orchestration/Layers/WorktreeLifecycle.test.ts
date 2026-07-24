@@ -226,6 +226,8 @@ const makeThreadRow = (input: {
   archivedAt: input.archivedAt ?? null,
   settledOverride: null,
   settledAt: null,
+  snoozedUntil: null,
+  snoozedAt: null,
   latestUserMessageAt: null,
   pendingApprovalCount: 0,
   pendingUserInputCount: 0,
