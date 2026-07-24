@@ -166,28 +166,31 @@ describe("buildMultiSelectThreadContextMenuItems", () => {
 });
 
 describe("buildSidebarV2ThreadContextMenuItems", () => {
+  const baseInput = {
+    branch: null,
+    supportsSettlement: false,
+    isSettled: false,
+    supportsSnooze: false,
+    isSnoozed: false,
+    canSnoozeNow: true,
+    snoozePresets: [],
+  } as const;
+
   it("offers settlement actions matching the thread's state and server support", () => {
     expect(
       buildSidebarV2ThreadContextMenuItems({
-        branch: null,
+        ...baseInput,
         supportsSettlement: true,
-        isSettled: false,
       })[0],
     ).toEqual({ id: "settle", label: "Settle thread" });
     expect(
       buildSidebarV2ThreadContextMenuItems({
-        branch: null,
+        ...baseInput,
         supportsSettlement: true,
         isSettled: true,
       })[0],
     ).toEqual({ id: "unsettle", label: "Un-settle thread" });
-    expect(
-      buildSidebarV2ThreadContextMenuItems({
-        branch: null,
-        supportsSettlement: false,
-        isSettled: false,
-      }),
-    ).toEqual([
+    expect(buildSidebarV2ThreadContextMenuItems(baseInput)).toEqual([
       { id: "rename", label: "Rename thread" },
       { id: "mark-unread", label: "Mark unread" },
       { id: "delete", label: "Delete", destructive: true, icon: "trash" },
@@ -197,11 +200,52 @@ describe("buildSidebarV2ThreadContextMenuItems", () => {
   it("leads with a new-thread item for the thread's branch", () => {
     expect(
       buildSidebarV2ThreadContextMenuItems({
+        ...baseInput,
         branch: "feature/login",
         supportsSettlement: true,
-        isSettled: false,
       })[0],
     ).toEqual({ id: "new-thread-on-branch", label: "New thread on feature/login" });
+  });
+
+  it("offers snooze presets when supported, disabled while the thread blocks on the user", () => {
+    const presets = [
+      {
+        id: "hour",
+        label: "In 1 hour",
+        whenLabel: "10:00 AM",
+        snoozedUntil: "2026-07-24T10:00:00.000Z",
+      },
+    ] as const;
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        ...baseInput,
+        supportsSnooze: true,
+        snoozePresets: presets,
+      })[0],
+    ).toEqual({
+      id: "snooze",
+      label: "Snooze",
+      disabled: false,
+      children: [{ id: "snooze:hour", label: "In 1 hour (10:00 AM)" }],
+    });
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        ...baseInput,
+        supportsSnooze: true,
+        canSnoozeNow: false,
+        snoozePresets: presets,
+      })[0],
+    ).toMatchObject({ id: "snooze", disabled: true });
+  });
+
+  it("offers wake instead of snooze for a snoozed thread", () => {
+    expect(
+      buildSidebarV2ThreadContextMenuItems({
+        ...baseInput,
+        supportsSnooze: true,
+        isSnoozed: true,
+      })[0],
+    ).toEqual({ id: "unsnooze", label: "Wake thread" });
   });
 });
 

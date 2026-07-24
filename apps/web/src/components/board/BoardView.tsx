@@ -22,6 +22,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { ScopedThreadRef, VcsStatusResult } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
@@ -61,6 +62,7 @@ import {
   isThreadSettledForDisplay,
   resolveThreadStatusPill,
 } from "../Sidebar.logic";
+import { resolveSnoozePresets, snoozeWakeDescription } from "../Sidebar.snooze";
 import { resolveThreadPr } from "../ThreadStatusIndicators";
 import { Button } from "../ui/button";
 import {
@@ -155,7 +157,9 @@ function BoardContent() {
     confirmAndDeleteThreads,
     renameThread,
     settleThread,
+    snoozeThread,
     unsettleThread,
+    unsnoozeThread,
   } = useThreadActions();
   const handleNewThread = useNewThreadHandler();
   const navigate = useNavigate();
@@ -634,16 +638,62 @@ function BoardContent() {
       const supportsSettlement =
         serverConfigsRef.current.get(thread.environmentId)?.environment.capabilities
           .threadSettlement === true;
+      const supportsSnooze =
+        serverConfigsRef.current.get(thread.environmentId)?.environment.capabilities
+          .threadSnooze === true;
       const isSettled = settledThreadKeysRef.current.has(threadKey);
+      // Snooze classification uses a real clock (wake times are
+      // second-precise) and presets resolve at menu-open time — both same
+      // as the sidebar.
+      const preciseNow = new Date().toISOString();
+      const isSnoozed = supportsSnooze && effectiveSnoozed(thread, { now: preciseNow });
+      const snoozePresets = resolveSnoozePresets(new Date());
       const clicked = await api.contextMenu.show(
         buildSidebarV2ThreadContextMenuItems({
           branch: thread.branch,
           supportsSettlement,
           isSettled,
+          supportsSnooze,
+          isSnoozed,
+          canSnoozeNow: canSnooze(thread, { now: preciseNow }),
+          snoozePresets,
         }),
         position,
       );
 
+      if (clicked?.startsWith("snooze:")) {
+        const preset = snoozePresets.find((candidate) => `snooze:${candidate.id}` === clicked);
+        if (!preset) {
+          return;
+        }
+        const result = await snoozeThread(threadRef, preset.snoozedUntil);
+        if (result._tag === "Failure") {
+          reportThreadActionFailure(result, "Failed to snooze thread");
+          return;
+        }
+        // A snoozed card has no visible change on the board, so the toast is
+        // the only confirmation — and Undo the escape hatch for a mis-click.
+        toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: `Snoozed until ${snoozeWakeDescription(preset.snoozedUntil, new Date())}`,
+            timeout: 5_000,
+            actionProps: {
+              children: "Undo",
+              onClick: () => {
+                void unsnoozeThread(threadRef).then((undoResult) => {
+                  reportThreadActionFailure(undoResult, "Failed to wake thread");
+                });
+              },
+            },
+          }),
+        );
+        return;
+      }
+      if (clicked === "unsnooze") {
+        reportThreadActionFailure(await unsnoozeThread(threadRef), "Failed to wake thread");
+        return;
+      }
       if (clicked === "new-thread-on-branch") {
         // Explicit branch carry-over: reuse the thread's worktree when it
         // has one, otherwise its branch on the local checkout.
@@ -680,7 +730,15 @@ function BoardContent() {
 
       reportThreadActionFailure(await confirmAndDeleteThread(threadRef), "Failed to delete thread");
     },
-    [confirmAndDeleteThread, handleNewThread, markThreadUnread, settleThread, unsettleThread],
+    [
+      confirmAndDeleteThread,
+      handleNewThread,
+      markThreadUnread,
+      settleThread,
+      snoozeThread,
+      unsettleThread,
+      unsnoozeThread,
+    ],
   );
 
   const showThreadContextMenu = useCallback(

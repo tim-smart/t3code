@@ -16,6 +16,7 @@ import type { ThreadRouteTarget } from "../threadRoutes";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
+import type { SnoozePreset } from "./Sidebar.snooze";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
@@ -123,14 +124,23 @@ export type SidebarV2ThreadContextMenuAction =
   | "new-thread-on-branch"
   | "settle"
   | "unsettle"
+  | "snooze"
+  | `snooze:${string}`
+  | "unsnooze"
   | "rename"
   | "mark-unread"
   | "delete";
 
+// Single source for the per-thread menu on both v2 surfaces (sidebar rows
+// and board cards) so the two can't drift apart item-by-item.
 export function buildSidebarV2ThreadContextMenuItems(input: {
   branch: string | null;
   supportsSettlement: boolean;
   isSettled: boolean;
+  supportsSnooze: boolean;
+  isSnoozed: boolean;
+  canSnoozeNow: boolean;
+  snoozePresets: ReadonlyArray<SnoozePreset>;
 }): readonly ContextMenuItem<SidebarV2ThreadContextMenuAction>[] {
   return [
     ...(input.branch
@@ -146,6 +156,21 @@ export function buildSidebarV2ThreadContextMenuItems(input: {
           input.isSettled
             ? ({ id: "unsettle", label: "Un-settle thread" } as const)
             : ({ id: "settle", label: "Settle thread" } as const),
+        ]
+      : []),
+    ...(input.supportsSnooze
+      ? [
+          input.isSnoozed
+            ? ({ id: "unsnooze", label: "Wake thread" } as const)
+            : ({
+                id: "snooze",
+                label: "Snooze",
+                disabled: !input.canSnoozeNow,
+                children: input.snoozePresets.map((preset) => ({
+                  id: `snooze:${preset.id}` as const,
+                  label: `${preset.label} (${preset.whenLabel})`,
+                })),
+              } satisfies ContextMenuItem<SidebarV2ThreadContextMenuAction>),
         ]
       : []),
     { id: "rename", label: "Rename thread" },
