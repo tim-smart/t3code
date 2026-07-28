@@ -88,6 +88,7 @@ import {
   countBoardColumnThreads,
   deriveBoardColumn,
   parseBoardWorktreeGroupDragId,
+  resolveAppliedBoardGitStatus,
   resolveBoardDropIntent,
   sliceBoardSettledItems,
   type BoardDropIntent,
@@ -318,11 +319,15 @@ function BoardContent() {
     const now = `${nowMinute}:00.000Z`;
     const keys = new Set<string>();
     for (const thread of filteredThreads) {
+      const gitStatus = resolveAppliedBoardGitStatus({
+        threadBranch: thread.branch,
+        hasDedicatedWorktree: thread.worktreePath != null,
+        gitStatus: getThreadGitContext(thread).gitStatus,
+      });
       const changeRequestState =
         resolveThreadPr({
           threadBranch: thread.branch,
-          hasDedicatedWorktree: thread.worktreePath != null,
-          gitStatus: getThreadGitContext(thread).gitStatus,
+          gitStatus,
         })?.state ?? null;
       if (
         isThreadSettledForDisplay(thread, {
