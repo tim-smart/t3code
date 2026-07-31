@@ -1005,7 +1005,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
    * Snapshots currently being encoded, keyed by target+prompt+image ids.
    * Keyed rather than boolean so a genuinely different prompt (or a different
    * thread) can still be stashed while an earlier encode is running.
-  */
+   */
   const stashInFlightRef = useRef<Set<string>>(new Set());
   /**
    * Count of pasted images still being compressed, per thread. Reserved

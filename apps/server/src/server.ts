@@ -342,8 +342,9 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
-  Layer.provideMerge(ServerSettingsLayerLive),
-  Layer.provideMerge(Layer.mergeAll(WorktreeLifecycleLive, CheckpointingLayerLive)),
+  Layer.provideMerge(
+    Layer.mergeAll(ServerSettingsLayerLive, WorktreeLifecycleLive, CheckpointingLayerLive),
+  ),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),
