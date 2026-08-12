@@ -117,7 +117,7 @@ const desktopSshEnvironmentLayer = Layer.unwrap(
 
 const electronLayer = Layer.mergeAll(
   ElectronApp.layer,
-  ElectronDialog.layer.pipe(Layer.provide(MacApplicationIcon.layer)),
+  ElectronDialog.layer,
   ElectronMenu.layer,
   ElectronPowerMonitor.layer,
   ElectronProtocol.layer,
@@ -127,7 +127,7 @@ const electronLayer = Layer.mergeAll(
   ElectronUpdater.layer,
   ElectronWindow.layer,
   DesktopIpc.layer(Electron.ipcMain),
-);
+).pipe(Layer.provideMerge(MacApplicationIcon.layer));
 
 const desktopFoundationLayer = Layer.mergeAll(
   DesktopState.layer,

@@ -119,7 +119,7 @@ describe("ElectronDialog", () => {
       assert.include(error.message, "window 7");
       assert.include(error.message, "/workspace");
       assert.notInclude(error.message, cause.message);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("preserves message box request context and cause", () =>
@@ -156,7 +156,7 @@ describe("ElectronDialog", () => {
       assert.notInclude(error.message, "Cancel");
       assert.notInclude(error.message, "Discard");
       assert.notInclude(error.message, cause.message);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 
   it.effect("preserves error box request context and cause in the defect", () =>
@@ -181,6 +181,6 @@ describe("ElectronDialog", () => {
       assert.notInclude(error.message, "Startup failed");
       assert.notInclude(error.message, "Could not start.");
       assert.notInclude(error.message, cause.message);
-    }).pipe(Effect.provide(ElectronDialog.layer)),
+    }).pipe(Effect.provide(dialogLayer)),
   );
 });
