@@ -27,6 +27,11 @@ import type {
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type { AssetCreateUrlInput, AssetCreateUrlResult } from "./assets.ts";
 import type {
+  DesktopApplicationSelection,
+  DesktopOpenWithInput,
+  OpenWithEntryPresentation,
+} from "./openWith.ts";
+import type {
   ProjectListEntriesInput,
   ProjectListEntriesResult,
   ProjectReadFileInput,
@@ -1048,6 +1053,9 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  pickOpenWithApplication: () => Promise<DesktopApplicationSelection | null>;
+  resolveOpenWithPresentations: () => Promise<readonly OpenWithEntryPresentation[]>;
+  openWith: (input: DesktopOpenWithInput) => Promise<void>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
@@ -1156,9 +1164,12 @@ export interface LocalApi {
   dialogs: {
     pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
     confirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
+    pickOpenWithApplication: () => Promise<DesktopApplicationSelection | null>;
   };
   shell: {
     openExternal: (url: string) => Promise<void>;
+    resolveOpenWithPresentations: () => Promise<readonly OpenWithEntryPresentation[]>;
+    openWith: (input: DesktopOpenWithInput) => Promise<void>;
   };
   contextMenu: {
     show: <T extends string>(

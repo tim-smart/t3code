@@ -1,10 +1,15 @@
+// @effect-diagnostics nodeBuiltinImport:off - Electron's picker returns host paths.
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as NodePath from "node:path";
 
 import * as Electron from "electron";
+import type { DesktopApplicationSelection } from "@t3tools/contracts";
+
+import * as MacApplicationIcon from "./MacApplicationIcon.ts";
 
 export class ElectronDialogPickFolderError extends Schema.TaggedErrorClass<ElectronDialogPickFolderError>()(
   "ElectronDialogPickFolderError",
@@ -33,6 +38,19 @@ export class ElectronDialogPickFilesError extends Schema.TaggedErrorClass<Electr
     const owner = this.ownerWindowId === null ? "the application" : `window ${this.ownerWindowId}`;
     const defaultPath = this.defaultPath === null ? "no default path" : this.defaultPath;
     return `Failed to open the Electron file picker for ${owner} with ${defaultPath}.`;
+  }
+}
+
+export class ElectronDialogPickApplicationError extends Schema.TaggedErrorClass<ElectronDialogPickApplicationError>()(
+  "ElectronDialogPickApplicationError",
+  {
+    ownerWindowId: Schema.NullOr(Schema.Number),
+    selectedPath: Schema.NullOr(Schema.String),
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return "Failed to select a macOS application.";
   }
 }
 
@@ -69,6 +87,7 @@ export class ElectronDialogShowErrorBoxError extends Schema.TaggedErrorClass<Ele
 export const ElectronDialogError = Schema.Union([
   ElectronDialogPickFolderError,
   ElectronDialogPickFilesError,
+  ElectronDialogPickApplicationError,
   ElectronDialogShowMessageBoxError,
   ElectronDialogShowErrorBoxError,
 ]);
@@ -86,6 +105,10 @@ export interface ElectronDialogPickFilesInput {
   readonly filters: readonly Electron.FileFilter[];
 }
 
+export interface ElectronDialogPickApplicationInput {
+  readonly owner: Option.Option<Electron.BrowserWindow>;
+}
+
 export class ElectronDialog extends Context.Service<
   ElectronDialog,
   {
@@ -95,6 +118,12 @@ export class ElectronDialog extends Context.Service<
     readonly pickFiles: (
       input: ElectronDialogPickFilesInput,
     ) => Effect.Effect<readonly string[], ElectronDialogPickFilesError>;
+    readonly pickApplication: (
+      input: ElectronDialogPickApplicationInput,
+    ) => Effect.Effect<
+      Option.Option<DesktopApplicationSelection>,
+      ElectronDialogPickApplicationError
+    >;
     readonly showMessageBox: (
       options: Electron.MessageBoxOptions,
     ) => Effect.Effect<Electron.MessageBoxReturnValue, ElectronDialogShowMessageBoxError>;
@@ -102,90 +131,141 @@ export class ElectronDialog extends Context.Service<
   }
 >()("@t3tools/desktop/electron/ElectronDialog") {}
 
-export const make = ElectronDialog.of({
-  pickFolder: Effect.fn("desktop.electron.dialog.pickFolder")(function* (input) {
-    const ownerWindowId = Option.match(input.owner, {
-      onNone: () => null,
-      onSome: (owner) => owner.id,
-    });
-    const defaultPath = Option.getOrNull(input.defaultPath);
-    const openDialogOptions: Electron.OpenDialogOptions = Option.match(input.defaultPath, {
-      onNone: () => ({
-        properties: ["openDirectory", "createDirectory"],
-      }),
-      onSome: (defaultPath) => ({
-        properties: ["openDirectory", "createDirectory"],
-        defaultPath,
-      }),
-    });
-    const result = yield* Effect.tryPromise({
-      try: () =>
-        Option.match(input.owner, {
-          onNone: () => Electron.dialog.showOpenDialog(openDialogOptions),
-          onSome: (owner) => Electron.dialog.showOpenDialog(owner, openDialogOptions),
-        }),
-      catch: (cause) =>
-        new ElectronDialogPickFolderError({
-          ownerWindowId,
-          defaultPath,
-          cause,
-        }),
-    });
+export const make = Effect.gen(function* () {
+  const applicationIcon = yield* MacApplicationIcon.MacApplicationIcon;
 
-    if (result.canceled) {
-      return Option.none();
-    }
-    return Option.fromNullishOr(result.filePaths[0]);
-  }),
-  pickFiles: Effect.fn("desktop.electron.dialog.pickFiles")(function* (input) {
-    const ownerWindowId = Option.match(input.owner, {
-      onNone: () => null,
-      onSome: (owner) => owner.id,
-    });
-    const defaultPath = Option.getOrNull(input.defaultPath);
-    const openDialogOptions: Electron.OpenDialogOptions = {
-      properties: ["openFile", "multiSelections"],
-      filters: [...input.filters],
-      ...(defaultPath === null ? {} : { defaultPath }),
-    };
-    const result = yield* Effect.tryPromise({
-      try: () =>
-        Option.match(input.owner, {
-          onNone: () => Electron.dialog.showOpenDialog(openDialogOptions),
-          onSome: (owner) => Electron.dialog.showOpenDialog(owner, openDialogOptions),
+  return ElectronDialog.of({
+    pickFolder: Effect.fn("desktop.electron.dialog.pickFolder")(function* (input) {
+      const ownerWindowId = Option.match(input.owner, {
+        onNone: () => null,
+        onSome: (owner) => owner.id,
+      });
+      const defaultPath = Option.getOrNull(input.defaultPath);
+      const openDialogOptions: Electron.OpenDialogOptions = Option.match(input.defaultPath, {
+        onNone: () => ({
+          properties: ["openDirectory", "createDirectory"],
         }),
-      catch: (cause) =>
-        new ElectronDialogPickFilesError({
-          ownerWindowId,
+        onSome: (defaultPath) => ({
+          properties: ["openDirectory", "createDirectory"],
           defaultPath,
-          cause,
         }),
-    });
-    return result.canceled ? [] : result.filePaths;
-  }),
-  showMessageBox: (options) =>
-    Effect.tryPromise({
-      try: () => Electron.dialog.showMessageBox(options),
-      catch: (cause) =>
-        new ElectronDialogShowMessageBoxError({
-          type: options.type ?? null,
-          titleLength: options.title?.length ?? null,
-          messageLength: options.message.length,
-          detailLength: options.detail?.length ?? null,
-          buttonCount: options.buttons?.length ?? 0,
-          cause,
-        }),
+      });
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          Option.match(input.owner, {
+            onNone: () => Electron.dialog.showOpenDialog(openDialogOptions),
+            onSome: (owner) => Electron.dialog.showOpenDialog(owner, openDialogOptions),
+          }),
+        catch: (cause) =>
+          new ElectronDialogPickFolderError({
+            ownerWindowId,
+            defaultPath,
+            cause,
+          }),
+      });
+
+      if (result.canceled) {
+        return Option.none();
+      }
+      return Option.fromNullishOr(result.filePaths[0]);
     }),
-  showErrorBox: (title, content) =>
-    Effect.try({
-      try: () => Electron.dialog.showErrorBox(title, content),
-      catch: (cause) =>
-        new ElectronDialogShowErrorBoxError({
-          titleLength: title.length,
-          contentLength: content.length,
-          cause,
-        }),
-    }).pipe(Effect.orDie),
+    pickFiles: Effect.fn("desktop.electron.dialog.pickFiles")(function* (input) {
+      const ownerWindowId = Option.match(input.owner, {
+        onNone: () => null,
+        onSome: (owner) => owner.id,
+      });
+      const defaultPath = Option.getOrNull(input.defaultPath);
+      const openDialogOptions: Electron.OpenDialogOptions = {
+        properties: ["openFile", "multiSelections"],
+        filters: [...input.filters],
+        ...(defaultPath === null ? {} : { defaultPath }),
+      };
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          Option.match(input.owner, {
+            onNone: () => Electron.dialog.showOpenDialog(openDialogOptions),
+            onSome: (owner) => Electron.dialog.showOpenDialog(owner, openDialogOptions),
+          }),
+        catch: (cause) =>
+          new ElectronDialogPickFilesError({
+            ownerWindowId,
+            defaultPath,
+            cause,
+          }),
+      });
+      return result.canceled ? [] : result.filePaths;
+    }),
+    pickApplication: Effect.fn("desktop.electron.dialog.pickApplication")(function* (input) {
+      const ownerWindowId = Option.match(input.owner, {
+        onNone: () => null,
+        onSome: (owner) => owner.id,
+      });
+      const options: Electron.OpenDialogOptions = {
+        defaultPath: "/Applications",
+        properties: ["openFile"],
+        filters: [{ name: "Applications", extensions: ["app"] }],
+      };
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          Option.match(input.owner, {
+            onNone: () => Electron.dialog.showOpenDialog(options),
+            onSome: (owner) => Electron.dialog.showOpenDialog(owner, options),
+          }),
+        catch: (cause) =>
+          new ElectronDialogPickApplicationError({
+            ownerWindowId,
+            selectedPath: null,
+            cause,
+          }),
+      });
+      if (result.canceled) return Option.none();
+
+      const applicationPath = result.filePaths[0];
+      if (
+        applicationPath === undefined ||
+        !NodePath.isAbsolute(applicationPath) ||
+        !applicationPath.toLowerCase().endsWith(".app")
+      ) {
+        return yield* new ElectronDialogPickApplicationError({
+          ownerWindowId,
+          selectedPath: applicationPath ?? null,
+          cause: new Error("The selected path is not an absolute .app bundle."),
+        });
+      }
+
+      const iconDataUrl = yield* applicationIcon
+        .resolveDataUrl(applicationPath)
+        .pipe(Effect.orElseSucceed(() => null));
+      return Option.some({
+        applicationPath,
+        suggestedName: NodePath.basename(applicationPath, NodePath.extname(applicationPath)),
+        iconDataUrl,
+      });
+    }),
+    showMessageBox: (options) =>
+      Effect.tryPromise({
+        try: () => Electron.dialog.showMessageBox(options),
+        catch: (cause) =>
+          new ElectronDialogShowMessageBoxError({
+            type: options.type ?? null,
+            titleLength: options.title?.length ?? null,
+            messageLength: options.message.length,
+            detailLength: options.detail?.length ?? null,
+            buttonCount: options.buttons?.length ?? 0,
+            cause,
+          }),
+      }),
+    showErrorBox: (title, content) =>
+      Effect.try({
+        try: () => Electron.dialog.showErrorBox(title, content),
+        catch: (cause) =>
+          new ElectronDialogShowErrorBoxError({
+            titleLength: title.length,
+            contentLength: content.length,
+            cause,
+          }),
+      }).pipe(Effect.orDie),
+  });
 });
 
-export const layer = Layer.succeed(ElectronDialog, make);
+export const layer = Layer.effect(ElectronDialog, make);
